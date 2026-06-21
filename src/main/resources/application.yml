@@ -1,0 +1,33 @@
+spring:
+  application:
+    name: java-api-apm-sample
+
+  # OpenFeign クライアントごとのタイムアウト設定
+  cloud:
+    openfeign:
+      client:
+        config:
+          # "ipify" は @FeignClient(name = "ipify") と対応するクライアント名
+          ipify:
+            connect-timeout: 3000  # 接続タイムアウト (ms)
+            read-timeout: 5000     # 読み取りタイムアウト (ms)
+
+# アプリケーション固有の設定
+app:
+  # 稼働環境名。ECS タスク定義の環境変数 APP_ENV で上書きされる（例: prod）
+  env: ${APP_ENV:local}
+
+# AWS 設定
+aws:
+  region: ${AWS_REGION:ap-northeast-1}
+  dynamodb:
+    table-name: ${DYNAMODB_USERS_TABLE:users}
+    # DynamoDB Local のエンドポイント URL。本番（ECS）では空のままにする。
+    # ローカル開発: export DYNAMODB_ENDPOINT_URL=http://localhost:8000
+    endpoint-url: ${DYNAMODB_ENDPOINT_URL:}
+
+# 外部 HTTP API 設定
+external:
+  ipify:
+    # ipify のベース URL。@FeignClient の url に注入される。
+    url: ${IPIFY_URL:https://api.ipify.org}
