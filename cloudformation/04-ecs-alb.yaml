@@ -1,0 +1,232 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  ECS Fargate service + ALB stack.
+  Imports VPC/subnet IDs from network stack and DynamoDB ARN from dynamodb stack.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: java-apm-sample
+  ImageUri:
+    Type: String
+    Description: >
+      ECR image URI with tag. e.g. 123456789.dkr.ecr.ap-northeast-1.amazonaws.com/java-apm-sample:abc1234
+  UsersTableName:
+    Type: String
+    Default: users
+    Description: DynamoDB table name injected as env var DYNAMODB_USERS_TABLE
+  DesiredCount:
+    Type: Number
+    Default: 1
+    Description: Number of ECS tasks
+
+Resources:
+
+  # ── Security Groups ──────────────────────────────────────────────────────
+  ALBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub ${ProjectName}-alb-sg
+      GroupDescription: Allow HTTP from anywhere to ALB
+      VpcId: !ImportValue
+        Fn::Sub: ${ProjectName}-vpc-id
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+
+  ECSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub ${ProjectName}-ecs-sg
+      GroupDescription: Allow port 8080 from ALB only
+      VpcId: !ImportValue
+        Fn::Sub: ${ProjectName}-vpc-id
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 8080
+          ToPort: 8080
+          SourceSecurityGroupId: !Ref ALBSecurityGroup
+
+  # ── IAM Roles ────────────────────────────────────────────────────────────
+  # TaskExecutionRole: ECS エージェントが ECR からイメージを pull し、CloudWatch Logs に書き込むための権限
+  TaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${ProjectName}-task-execution-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+
+  # TaskRole: コンテナ内アプリが DynamoDB にアクセスするための権限
+  # APM 追加フェーズでは AWSXRayDaemonWriteAccess / CloudWatchAgentServerPolicy を追加する
+  TaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${ProjectName}-task-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: DynamoDBCRUD
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:Query
+                  - dynamodb:Scan
+                Resource:
+                  - !ImportValue
+                    Fn::Sub: ${ProjectName}-users-table-arn
+
+  # ── CloudWatch Logs ──────────────────────────────────────────────────────
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /ecs/${ProjectName}
+      RetentionInDays: 30
+
+  # ── ECS ──────────────────────────────────────────────────────────────────
+  ECSCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub ${ProjectName}-cluster
+
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub ${ProjectName}-task
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      # APM サイドカー不在のため最小構成。追加フェーズで 512/1024 に引き上げる。
+      Cpu: 256
+      Memory: 512
+      ExecutionRoleArn: !GetAtt TaskExecutionRole.Arn
+      TaskRoleArn: !GetAtt TaskRole.Arn
+      ContainerDefinitions:
+        - Name: !Sub ${ProjectName}-container
+          Image: !Ref ImageUri
+          PortMappings:
+            - ContainerPort: 8080
+              Protocol: tcp
+          Environment:
+            - Name: APP_ENV
+              Value: prod
+            - Name: AWS_REGION
+              Value: !Ref AWS::Region
+            - Name: DYNAMODB_USERS_TABLE
+              Value: !Ref UsersTableName
+            # DYNAMODB_ENDPOINT_URL は本番では未設定（デフォルトのリージョンエンドポイントを使用）
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref LogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: ecs
+          HealthCheck:
+            Command:
+              - CMD-SHELL
+              - curl -f http://localhost:8080/health || exit 1
+            Interval: 30
+            Timeout: 5
+            Retries: 3
+            StartPeriod: 60
+
+  # ── ALB ──────────────────────────────────────────────────────────────────
+  ALB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub ${ProjectName}-alb
+      Scheme: internet-facing
+      Type: application
+      Subnets:
+        - !ImportValue
+          Fn::Sub: ${ProjectName}-public-subnet-1a-id
+        - !ImportValue
+          Fn::Sub: ${ProjectName}-public-subnet-1c-id
+      SecurityGroups:
+        - !Ref ALBSecurityGroup
+
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub ${ProjectName}-tg
+      Protocol: HTTP
+      Port: 8080
+      VpcId: !ImportValue
+        Fn::Sub: ${ProjectName}-vpc-id
+      TargetType: ip
+      HealthCheckPath: /health
+      HealthCheckProtocol: HTTP
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+
+  ALBListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ALB
+      Protocol: HTTP
+      Port: 80
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroup
+
+  # ── ECS Service ──────────────────────────────────────────────────────────
+  ECSService:
+    Type: AWS::ECS::Service
+    DependsOn: ALBListener
+    Properties:
+      ServiceName: !Sub ${ProjectName}-service
+      Cluster: !Ref ECSCluster
+      TaskDefinition: !Ref TaskDefinition
+      LaunchType: FARGATE
+      DesiredCount: !Ref DesiredCount
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets:
+            - !ImportValue
+              Fn::Sub: ${ProjectName}-private-subnet-1a-id
+            - !ImportValue
+              Fn::Sub: ${ProjectName}-private-subnet-1c-id
+          SecurityGroups:
+            - !Ref ECSSecurityGroup
+      LoadBalancers:
+        - ContainerName: !Sub ${ProjectName}-container
+          ContainerPort: 8080
+          TargetGroupArn: !Ref TargetGroup
+
+Outputs:
+  ALBDnsName:
+    Value: !GetAtt ALB.DNSName
+    Export:
+      Name: !Sub ${ProjectName}-alb-dns
+
+  ECSClusterName:
+    Value: !Ref ECSCluster
+    Export:
+      Name: !Sub ${ProjectName}-ecs-cluster-name
+
+  ECSServiceName:
+    Value: !GetAtt ECSService.Name
+    Export:
+      Name: !Sub ${ProjectName}-ecs-service-name

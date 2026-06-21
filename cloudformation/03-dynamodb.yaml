@@ -1,0 +1,39 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: DynamoDB users table stack.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: java-apm-sample
+  UsersTableName:
+    Type: String
+    Default: users
+
+Resources:
+
+  UsersTable:
+    Type: AWS::DynamoDB::Table
+    # DeletionPolicy のデフォルトは Delete。スタック削除時にテーブルとデータも削除される。
+    Properties:
+      TableName: !Ref UsersTableName
+      AttributeDefinitions:
+        - AttributeName: email
+          AttributeType: S
+      KeySchema:
+        - AttributeName: email
+          KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+
+Outputs:
+  UsersTableName:
+    Value: !Ref UsersTable
+    Export:
+      Name: !Sub ${ProjectName}-users-table-name
+
+  UsersTableArn:
+    Value: !GetAtt UsersTable.Arn
+    Export:
+      Name: !Sub ${ProjectName}-users-table-arn
