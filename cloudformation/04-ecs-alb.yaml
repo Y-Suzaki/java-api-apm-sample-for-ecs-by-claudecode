@@ -65,8 +65,11 @@ Resources:
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
 
-  # TaskRole: コンテナ内アプリが DynamoDB にアクセスするための権限
-  # APM 追加フェーズでは AWSXRayDaemonWriteAccess / CloudWatchAgentServerPolicy を追加する
+  # TaskRole: コンテナ内アプリと CloudWatch Agent サイドカーが使用する権限
+  # - DynamoDB CRUD: アプリコンテナが users テーブルにアクセスするための権限
+  # - AWSXRayDaemonWriteAccess: CloudWatch Agent が X-Ray にトレースを送信するための権限
+  # - CloudWatchAgentServerPolicy: CloudWatch Agent が Application Signals メトリクスを送信するための権限
+  #   （サイドカーもタスクロールを共有する）
   TaskRole:
     Type: AWS::IAM::Role
     Properties:
@@ -78,6 +81,9 @@ Resources:
             Principal:
               Service: ecs-tasks.amazonaws.com
             Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AWSXRayDaemonWriteAccess
+        - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
       Policies:
         - PolicyName: DynamoDBCRUD
           PolicyDocument:
@@ -115,14 +121,17 @@ Resources:
       NetworkMode: awsvpc
       RequiresCompatibilities:
         - FARGATE
-      # APM サイドカー不在のため最小構成。追加フェーズで 512/1024 に引き上げる。
-      Cpu: 256
-      Memory: 512
+      # CloudWatch Agent サイドカー追加に伴い 512/1024 に引き上げ（サイドカーが常駐 ~50MiB 消費するため）
+      Cpu: 512
+      Memory: 1024
       ExecutionRoleArn: !GetAtt TaskExecutionRole.Arn
       TaskRoleArn: !GetAtt TaskRole.Arn
       ContainerDefinitions:
+
+        # ----- アプリケーションコンテナ -----
         - Name: !Sub ${ProjectName}-container
           Image: !Ref ImageUri
+          Essential: true
           PortMappings:
             - ContainerPort: 8080
               Protocol: tcp
@@ -134,12 +143,46 @@ Resources:
             - Name: DYNAMODB_USERS_TABLE
               Value: !Ref UsersTableName
             # DYNAMODB_ENDPOINT_URL は本番では未設定（デフォルトのリージョンエンドポイントを使用）
+
+            # ----- ADOT Java Agent / Application Signals 設定 -----
+            # OTLP/HTTP で CloudWatch Agent サイドカー（localhost:4316）に送信する。
+            # awsvpc モードのため同一タスク内は localhost で通信できる。
+            - Name: OTEL_EXPORTER_OTLP_PROTOCOL
+              Value: http/protobuf
+            - Name: OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
+              Value: http://localhost:4316/v1/traces
+            - Name: OTEL_AWS_APPLICATION_SIGNALS_ENABLED
+              Value: "true"
+            - Name: OTEL_AWS_APPLICATION_SIGNALS_EXPORTER_ENDPOINT
+              Value: http://localhost:4316/v1/metrics
+            # Application Signals 経由でメトリクスを送るため OTLP の metrics/logs 直送は無効化する
+            - Name: OTEL_METRICS_EXPORTER
+              Value: none
+            - Name: OTEL_LOGS_EXPORTER
+              Value: none
+            # X-Ray Central Sampling（CloudWatch Agent が UDP/2000 でサンプリングプロキシとして動作）
+            - Name: OTEL_TRACES_SAMPLER
+              Value: xray
+            - Name: OTEL_TRACES_SAMPLER_ARG
+              Value: endpoint=http://localhost:2000
+            # X-Ray トレース ID 互換のプロパゲーター（Application Signals 推奨構成）
+            - Name: OTEL_PROPAGATORS
+              Value: tracecontext,baggage,b3,xray
+            - Name: OTEL_SERVICE_NAME
+              Value: !Sub ${ProjectName}-api
+            - Name: OTEL_RESOURCE_ATTRIBUTES
+              Value: !Sub deployment.environment=prod,service.namespace=${ProjectName}
+          # サイドカー（otel-collector）が起動してからアプリを起動させる。
+          # 起動直後のスパン送信で接続失敗ログが出るのを防ぐ。
+          DependsOn:
+            - ContainerName: otel-collector
+              Condition: START
           LogConfiguration:
             LogDriver: awslogs
             Options:
               awslogs-group: !Ref LogGroup
               awslogs-region: !Ref AWS::Region
-              awslogs-stream-prefix: ecs
+              awslogs-stream-prefix: api
           HealthCheck:
             Command:
               - CMD-SHELL
@@ -148,6 +191,36 @@ Resources:
             Timeout: 5
             Retries: 3
             StartPeriod: 60
+
+        # ----- CloudWatch Agent サイドカー（Application Signals 用） -----
+        # ECS タスク内で OTLP を 4315/4316 で受信し、AWS Application Signals
+        # （X-Ray トレース + CloudWatch メトリクス）にエクスポートする。
+        # X-Ray Central Sampling の UDP プロキシ（:2000）も本コンテナが担う。
+        # X-Ray / CloudWatch への送信権限は TaskRole から付与する。
+        - Name: otel-collector
+          Image: public.ecr.aws/cloudwatch-agent/cloudwatch-agent:latest
+          Essential: true
+          Environment:
+            - Name: CW_CONFIG_CONTENT
+              Value: |
+                {
+                  "traces": {
+                    "traces_collected": {
+                      "application_signals": {}
+                    }
+                  },
+                  "logs": {
+                    "metrics_collected": {
+                      "application_signals": {}
+                    }
+                  }
+                }
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref LogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: cwagent
 
   # ── ALB ──────────────────────────────────────────────────────────────────
   ALB:

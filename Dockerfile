@@ -15,8 +15,16 @@ RUN mvn dependency:go-offline -q
 COPY src/ src/
 RUN mvn package -DskipTests -q
 
+# ADOT Java Agent をダウンロードする。
+# v2.x 系を使用する（v1.x はメンテナンスモードのため非推奨）。
+# 最新バージョンは https://github.com/aws-observability/aws-otel-java-instrumentation/releases で確認すること。
+ARG ADOT_AGENT_VERSION=2.28.1
+RUN curl -fSL \
+    https://github.com/aws-observability/aws-otel-java-instrumentation/releases/download/v${ADOT_AGENT_VERSION}/aws-opentelemetry-agent.jar \
+    -o /build/aws-opentelemetry-agent.jar
+
 # Stage 2: runtime
-# builder ステージのビルド成果物（JAR）のみをコピーし、最小イメージにする。
+# builder ステージのビルド成果物（JAR と Agent）のみをコピーし、最小イメージにする。
 FROM amazoncorretto:17-al2023
 
 # amazoncorretto:17-al2023 の最小イメージには shadow-utils（useradd を含む）が含まれていないため先にインストールする
@@ -24,11 +32,18 @@ RUN dnf install -y shadow-utils && dnf clean all && useradd -r -M -s /sbin/nolog
 
 WORKDIR /app
 COPY --from=builder /build/target/*.jar app.jar
-RUN chown app:app app.jar
+COPY --from=builder /build/aws-opentelemetry-agent.jar aws-opentelemetry-agent.jar
+RUN chown app:app app.jar aws-opentelemetry-agent.jar
 
 USER app
 
 EXPOSE 8080
 
-# -Dspring.output.ansi.enabled=NEVER: ANSI カラーコードを除去して CloudWatch Logs を可読にする
-CMD ["java", "-Dspring.output.ansi.enabled=NEVER", "-jar", "app.jar"]
+# -javaagent: ADOT Java Agent によるバイトコード計装（Spring MVC / AWS SDK v1 / OpenFeign を自動計装）。
+# アプリコードの変更なしにトレースが有効になる。
+# OTEL_* 環境変数は ECS タスク定義の Environment で注入する。
+# -Dspring.output.ansi.enabled=NEVER: ANSI カラーコードを除去して CloudWatch Logs を可読にする。
+CMD ["java", \
+     "-javaagent:/app/aws-opentelemetry-agent.jar", \
+     "-Dspring.output.ansi.enabled=NEVER", \
+     "-jar", "app.jar"]
