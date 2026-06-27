@@ -2,6 +2,26 @@ spring:
   application:
     name: java-api-apm-sample
 
+  # MySQL / Aurora MySQL データソース設定
+  datasource:
+    # ローカル: docker-compose で起動した MySQL を指す（環境変数で上書き可）
+    url: ${MYSQL_URL:jdbc:mysql://localhost:3306/sampledb?serverTimezone=UTC&characterEncoding=UTF-8}
+    username: ${MYSQL_USER:appuser}
+    password: ${MYSQL_PASSWORD:apppassword}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+      connection-timeout: 30000
+      idle-timeout: 600000
+
+  jpa:
+    hibernate:
+      # validate: スキーマの変更は行わず、エンティティ定義との整合性のみ検証する。
+      # スキーマは mysql/init/01_init.sql で管理する。
+      ddl-auto: validate
+    open-in-view: false  # LazyInitializationException を明示的に防ぐため false を推奨
+
   # OpenFeign クライアントごとのタイムアウト設定
   cloud:
     openfeign:

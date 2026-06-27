@@ -52,6 +52,24 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * 同一名称の会社が既に存在する場合: 409 Conflict。
+     */
+    @ExceptionHandler(CompanyAlreadyExistsException.class)
+    @ResponseStatus(HttpStatus.CONFLICT)
+    public ErrorResponse handleCompanyAlreadyExists(CompanyAlreadyExistsException ex) {
+        return new ErrorResponse(ex.getMessage());
+    }
+
+    /**
+     * 指定会社が存在しない場合: 404 Not Found。
+     */
+    @ExceptionHandler(CompanyNotFoundException.class)
+    @ResponseStatus(HttpStatus.NOT_FOUND)
+    public ErrorResponse handleCompanyNotFound(CompanyNotFoundException ex) {
+        return new ErrorResponse(ex.getMessage());
+    }
+
+    /**
      * @RequestBody のバリデーション失敗: 400 Bad Request。
      *
      * <p>@Valid が付いた @RequestBody のバリデーションに失敗すると Spring MVC が

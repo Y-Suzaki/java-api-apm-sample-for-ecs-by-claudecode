@@ -122,6 +122,7 @@ Partition Key は `email`（メールアドレス）。
 
 ### API DTO（Java Records）
 ```java
+
 // レスポンス
 public record UserResponse(String email, String name, Instant createdAt, Instant updatedAt) {}
 
