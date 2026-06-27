@@ -1,6 +1,7 @@
 # java-api-apm-sample-for-ecs-by-claudecode
 
-Spring Boot 3.5 (Java) で実装したユーザー管理 API を、AWS ALB + ECS Fargate + DynamoDB 上で動かすサンプル。  
+Spring Boot 3.5 (Java) で実装したバックエンド REST API を、AWS ALB + ECS Fargate 上で動かすサンプル。  
+ユーザー管理 API（DynamoDB）と会社情報管理 API（MySQL / Amazon Aurora MySQL）の 2 系統を提供する。  
 OpenTelemetry を活用し、Application Signals と X-Ray と連携する。
 
 ## 構成図（論理）
@@ -12,7 +13,8 @@ OpenTelemetry を活用し、Application Signals と X-Ray と連携する。
 
 - リージョン: `ap-northeast-1`（東京）
 - ネットワーク: 自前の VPC（Public/Private 2 AZ 構成）。コスト削減のため NAT Gateway は単一 AZ。
-- DB: DynamoDB（Partition Key = `email`）。VPC からは Gateway 型エンドポイント経由。
+- DB（NoSQL）: DynamoDB（Partition Key = `email`）。VPC からは Gateway 型エンドポイント経由。
+- DB（リレーショナル）: ローカル開発は MySQL 8.0 in Docker。AWS 本番は Aurora MySQL（今後追加予定）。
 - 認証: なし（サンプル用途）。
 
 ## ディレクトリ
@@ -20,27 +22,61 @@ OpenTelemetry を活用し、Application Signals と X-Ray と連携する。
 | パス | 説明 |
 | --- | --- |
 | `src/main/java/com/example/api/` | Spring Boot アプリケーション本体 |
-| `controller/` | リクエスト受け付け層（`/users`, `/health`, `/configuration`） |
-| `service/` | ドメインロジック（DynamoDB 入出力） |
-| `repository/` | DynamoDB アクセス層（DynamoDBMapper） |
-| `model/` | DTO／DynamoDB マッピングモデル |
+| `controller/` | リクエスト受け付け層（`/users`, `/companies`, `/health`, `/configuration`） |
+| `service/` | ドメインロジック（DynamoDB 入出力 / JPA 入出力） |
+| `repository/` | DynamoDB アクセス層（DynamoDBMapper）/ JPA アクセス層（JpaRepository） |
+| `model/` | DTO／DynamoDB マッピングモデル / JPA エンティティ |
 | `client/` | Feign Client（`IpifyClient`、外部 HTTP 呼び出し） |
 | `config/` | Bean 定義（`DynamoDbConfig`, `AppProperties`） |
 | `exception/` | 例外クラス + `GlobalExceptionHandler` |
 | `Dockerfile` | Amazon Corretto 17 マルチステージビルド → 非 root で起動 |
 | `cloudformation/` | スタック分割した CFN テンプレート |
-| `scripts/` | ビルド・デプロイ用シェルスクリプト |
+| `scripts/` | ビルド・デプロイ用シェルスクリプト / ローカル開発スクリプト |
+| `docker-compose.yml` | ローカル開発用コンテナ定義（MySQL 8.0 + DynamoDB Local） |
+| `mysql/init/` | MySQL 初期化 SQL（companies テーブル DDL） |
 
 ## ローカル開発
 
+前提: Docker・AWS CLI・Maven が PATH に存在すること。
+
 ```bash
-mvn spring-boot:run
-# http://localhost:8080/health で疎通確認
+# MySQL + DynamoDB Local を起動（Docker Compose）
+bash scripts/local-infra.sh
+
+# Spring Boot を起動（別ターミナル）
+# または以下で一括起動
+bash scripts/local-run.sh
 ```
 
-DynamoDB Local を使う場合は `DYNAMODB_ENDPOINT_URL=http://localhost:8000` を設定。
+起動後、`http://localhost:8080/health` で疎通確認できる。
+
+**ローカル環境の構成:**
+- MySQL 8.0（Docker, port 3306）— Company API が接続。初回起動時に `mysql/init/01_init.sql` で DDL を自動実行。
+- DynamoDB Local（Docker, port 8000）— User API が接続。`users` テーブルは `local-infra.sh` が自動作成。
+
+**IDE から直接起動する場合は以下の環境変数を設定:**
+
+| 変数名                  | 値                                                                              |
+|-----------------------|--------------------------------------------------------------------------------|
+| AWS_ACCESS_KEY_ID     | `dummy`                                                                        |
+| AWS_SECRET_ACCESS_KEY | `dummy`                                                                        |
+| AWS_DEFAULT_REGION    | `ap-northeast-1`                                                               |
+| DYNAMODB_ENDPOINT_URL | `http://localhost:8000`                                                        |
+| DYNAMODB_USERS_TABLE  | `users`                                                                        |
+| MYSQL_URL             | `jdbc:mysql://localhost:3306/sampledb?serverTimezone=UTC&characterEncoding=UTF-8` |
+| MYSQL_USER            | `appuser`                                                                      |
+| MYSQL_PASSWORD        | `apppassword`                                                                  |
+| APP_ENV               | `local`                                                                        |
+
+**停止:**
+
+```bash
+bash scripts/local-infra.sh --stop
+```
 
 ## API 一覧
+
+### User API（DynamoDB）
 
 | Method | Path | 概要 |
 | --- | --- | --- |
@@ -50,6 +86,16 @@ DynamoDB Local を使う場合は `DYNAMODB_ENDPOINT_URL=http://localhost:8000` 
 | GET | `/users/{email}` | ユーザー詳細取得 |
 | PUT | `/users/{email}` | ユーザー名更新 |
 | GET | `/configuration` | サンプル設定取得（外部 HTTP 呼び出しのトレース確認用） |
+
+### Company API（MySQL / Aurora MySQL）
+
+| Method | Path | 概要 |
+| --- | --- | --- |
+| POST | `/companies` | 会社新規作成（201 Created） |
+| GET | `/companies` | 会社一覧取得（最大 100 件） |
+| GET | `/companies/{id}` | 会社詳細取得 |
+| PUT | `/companies/{id}` | 会社情報更新（部分更新: null フィールドは既存値を保持） |
+| DELETE | `/companies/{id}` | 会社削除（204 No Content） |
 
 ## デプロイ
 

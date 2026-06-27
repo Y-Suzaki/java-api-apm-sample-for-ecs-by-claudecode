@@ -14,13 +14,16 @@
 | Web フレームワーク          | Spring Boot 3.5（Spring MVC / Embedded Tomcat）    |
 | 言語                   | Java 17                                          |
 | ビルドツール               | Maven 3                                          |
-| DB クライアント            | AWS SDK for Java v1（`aws-java-sdk-dynamodb` / DynamoDBMapper） |
+| DB クライアント（NoSQL）     | AWS SDK for Java v1（`aws-java-sdk-dynamodb` / DynamoDBMapper） |
+| ORM / JPA            | Spring Data JPA（JpaRepository）/ Hibernate 6      |
+| DB（リレーショナル）    | MySQL 8.0（ローカル: Docker）/ Amazon Aurora MySQL（AWS） |
+| コネクションプール      | HikariCP（Spring Boot 自動構成）                      |
 | 外部 HTTP クライアント       | Spring Cloud OpenFeign（`@FeignClient`）            |
 | バリデーション              | Jakarta Bean Validation（spring-boot-starter-validation） |
 | ボイラープレート削減           | Lombok                                           |
 | インフラストラクチャー          | AWS（ALB、ECS Fargate を中心に利用）                     |
 | インフラコード管理            | CloudFormation Template                          |
-| DB                   | DynamoDB                                         |
+| DB（NoSQL）            | DynamoDB                                         |
 | 分散トレーシング SDK          | （後フェーズで追加）                                      |
 
 ## ディレクトリ構成
@@ -36,22 +39,31 @@
 │       │   ├── client/
 │       │   │   └── IpifyClient.java         # @FeignClient（ipify 外部 HTTP 呼び出し）
 │       │   ├── controller/
-│       │   │   ├── HealthController.java    # GET /health
-│       │   │   ├── UserController.java      # /users CRUD
-│       │   │   └── ConfigurationController.java  # GET /configuration
+│       │   │   ├── HealthController.java        # GET /health
+│       │   │   ├── UserController.java          # /users CRUD
+│       │   │   ├── CompanyController.java       # /companies CRUD
+│       │   │   └── ConfigurationController.java # GET /configuration
 │       │   ├── service/
-│       │   │   └── UserService.java         # ユーザー CRUD ビジネスロジック
+│       │   │   ├── UserService.java             # ユーザー CRUD ビジネスロジック
+│       │   │   └── CompanyService.java          # 会社 CRUD ビジネスロジック
 │       │   ├── repository/
-│       │   │   └── UserRepository.java      # DynamoDB アクセス層
+│       │   │   ├── UserRepository.java          # DynamoDB アクセス層（DynamoDBMapper）
+│       │   │   └── CompanyRepository.java       # JPA アクセス層（JpaRepository）
 │       │   ├── model/
-│       │   │   ├── UserItem.java            # DynamoDB テーブルマッピング（@DynamoDBTable）
-│       │   │   ├── UserResponse.java        # API レスポンス（record）
-│       │   │   ├── UserCreateRequest.java   # 新規作成リクエスト（record）
-│       │   │   ├── UserUpdateRequest.java   # 更新リクエスト（record）
-│       │   │   └── ConfigurationResponse.java  # /configuration レスポンス（record）
+│       │   │   ├── UserItem.java                # DynamoDB テーブルマッピング（@DynamoDBTable）
+│       │   │   ├── UserResponse.java            # API レスポンス（record）
+│       │   │   ├── UserCreateRequest.java       # 新規作成リクエスト（record）
+│       │   │   ├── UserUpdateRequest.java       # 更新リクエスト（record）
+│       │   │   ├── ConfigurationResponse.java   # /configuration レスポンス（record）
+│       │   │   ├── CompanyEntity.java           # JPA エンティティ（@Entity / @Table）
+│       │   │   ├── CompanyResponse.java         # API レスポンス（record）
+│       │   │   ├── CompanyCreateRequest.java    # 新規作成リクエスト（record）
+│       │   │   └── CompanyUpdateRequest.java    # 更新リクエスト（record）
 │       │   └── exception/
 │       │       ├── UserAlreadyExistsException.java
 │       │       ├── UserNotFoundException.java
+│       │       ├── CompanyAlreadyExistsException.java
+│       │       ├── CompanyNotFoundException.java
 │       │       └── GlobalExceptionHandler.java  # @RestControllerAdvice
 │       └── resources/
 │           └── application.yml
@@ -66,7 +78,13 @@
 │   ├── deploy-infra.sh
 │   ├── deploy-service.sh
 │   ├── deploy-all.sh
-│   └── delete-all.sh
+│   ├── delete-all.sh
+│   ├── local-infra.sh
+│   └── local-run.sh
+├── mysql/
+│   └── init/
+│       └── 01_init.sql              # companies テーブル DDL（MySQL 初期化）
+├── docker-compose.yml               # ローカル開発用（MySQL 8.0 + DynamoDB Local）
 ├── Dockerfile
 ├── .dockerignore
 ├── .gitignore
@@ -74,16 +92,28 @@
 ```
 
 ## バックエンド API の機能
+
+### User API（DynamoDB）
 Python 版と同等のエンドポイントを実装する。
 
-| メソッド | パス              | 説明                                   |
-|------|-----------------|--------------------------------------|
-| GET  | /health         | ALB ヘルスチェック。`{"status":"ok","env":"..."}` を返す |
-| POST | /users          | ユーザー新規作成（201 Created）                |
-| GET  | /users          | ユーザー一覧取得（クエリパラメータ `limit`、デフォルト 50、最大 100） |
-| GET  | /users/{email}  | ユーザー詳細取得                             |
-| PUT  | /users/{email}  | ユーザー更新（`name` のみ）                   |
-| GET  | /configuration  | 外部 HTTP API（ipify）を呼び出してグローバル IP を返す |
+| メソッド   | パス              | 説明                                   |
+|--------|-----------------|--------------------------------------|
+| GET    | /health         | ALB ヘルスチェック。`{"status":"ok","env":"..."}` を返す |
+| POST   | /users          | ユーザー新規作成（201 Created）                |
+| GET    | /users          | ユーザー一覧取得（クエリパラメータ `limit`、デフォルト 50、最大 100） |
+| GET    | /users/{email}  | ユーザー詳細取得                             |
+| PUT    | /users/{email}  | ユーザー更新（`name` のみ）                   |
+| GET    | /configuration  | 外部 HTTP API（ipify）を呼び出してグローバル IP を返す |
+
+### Company API（MySQL / Aurora MySQL）
+
+| メソッド   | パス               | 説明                                      |
+|--------|------------------|-----------------------------------------|
+| POST   | /companies       | 会社新規作成（201 Created）                    |
+| GET    | /companies       | 会社一覧取得（クエリパラメータ `limit`、デフォルト 50、最大 100） |
+| GET    | /companies/{id}  | 会社詳細取得                                  |
+| PUT    | /companies/{id}  | 会社更新（部分更新: null フィールドはスキップ）            |
+| DELETE | /companies/{id}  | 会社削除（204 No Content）                    |
 
 ### /configuration の目的
 外部 HTTP 呼び出し（ipify.org）のサンプルエンドポイント。ECS タスクが Private Subnet 経由で
@@ -98,6 +128,20 @@ Python 版と同等のエンドポイントを実装する。
 spring:
   application:
     name: java-api-apm-sample
+  datasource:
+    url: ${MYSQL_URL:jdbc:mysql://localhost:3306/sampledb?serverTimezone=UTC&characterEncoding=UTF-8}
+    username: ${MYSQL_USER:appuser}
+    password: ${MYSQL_PASSWORD:apppassword}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+      connection-timeout: 30000
+      idle-timeout: 600000
+  jpa:
+    hibernate:
+      ddl-auto: validate          # スキーマは SQL 初期化スクリプトで管理。Hibernate は検証のみ
+    open-in-view: false
 
 app:
   env: ${APP_ENV:local}
@@ -109,6 +153,19 @@ aws:
     endpoint-url: ${DYNAMODB_ENDPOINT_URL:}   # ローカル DynamoDB Local 用。本番は空
 ```
 
+**ローカル開発時の環境変数（IDE 向け）:**
+
+| 変数名                  | 値                                                                             |
+|-----------------------|-------------------------------------------------------------------------------|
+| MYSQL_URL             | `jdbc:mysql://localhost:3306/sampledb?serverTimezone=UTC&characterEncoding=UTF-8` |
+| MYSQL_USER            | `appuser`                                                                     |
+| MYSQL_PASSWORD        | `apppassword`                                                                 |
+| DYNAMODB_ENDPOINT_URL | `http://localhost:8000`                                                       |
+| DYNAMODB_USERS_TABLE  | `users`                                                                       |
+| AWS_ACCESS_KEY_ID     | `dummy`                                                                       |
+| AWS_SECRET_ACCESS_KEY | `dummy`                                                                       |
+| APP_ENV               | `local`                                                                       |
+
 ### DynamoDB モデル（UserItem）
 AWS SDK v1 の `@DynamoDBTable` / `@DynamoDBHashKey` / `@DynamoDBAttribute` を使った DynamoDBMapper のマッピング。
 Partition Key は `email`（メールアドレス）。
@@ -119,6 +176,43 @@ Partition Key は `email`（メールアドレス）。
 | name         | String   | 表示名            |
 | created_at   | String   | ISO-8601 UTC 文字列 |
 | updated_at   | String   | ISO-8601 UTC 文字列 |
+
+
+### MySQL モデル（CompanyEntity）
+`@Entity` / `@Table(name = "companies")` を使った Spring Data JPA のマッピング。PK は `id`（BIGINT AUTO_INCREMENT）。
+スキーマは `mysql/init/01_init.sql` で定義し、Hibernate は `ddl-auto: validate` で検証のみ行う。
+
+| カラム        | Java 型          | 説明                                |
+|-------------|----------------|-----------------------------------|
+| id（PK）     | Long           | 自動採番                              |
+| name        | String         | 会社名（UNIQUE, NOT NULL, 200 字以内）   |
+| industry    | String         | 業種（NULL 可）                        |
+| email       | String         | 代表メールアドレス（NULL 可）                |
+| phone       | String         | 電話番号（NULL 可）                      |
+| address     | String         | 住所（NULL 可）                        |
+| created_at  | LocalDateTime  | `@CreationTimestamp` で自動設定        |
+| updated_at  | LocalDateTime  | `@UpdateTimestamp` で自動更新          |
+
+MySQL の `DATETIME(6)` は Hibernate 6 が `LocalDateTime` をマッピングする型。init SQL と合わせる必要がある。
+
+### Company API DTO（Java Records）
+```java
+// 新規作成リクエスト
+public record CompanyCreateRequest(
+        @NotBlank @Size(max = 200) String name,
+        @Size(max = 100) String industry,
+        @Email @Size(max = 255) String email,
+        @Size(max = 50) String phone,
+        @Size(max = 500) String address) {}
+
+// 更新リクエスト（全フィールド null 可; null フィールドは既存値を保持）
+public record CompanyUpdateRequest(
+        @Size(max = 200) String name,
+        @Size(max = 100) String industry,
+        @Email @Size(max = 255) String email,
+        @Size(max = 50) String phone,
+        @Size(max = 500) String address) {}
+```
 
 ### API DTO（Java Records）
 ```java
@@ -136,12 +230,14 @@ public record UserUpdateRequest(@NotBlank @Size(max=100) String name) {}
 ### エラーレスポンス
 `@RestControllerAdvice`（GlobalExceptionHandler）で統一するHTTP ステータスとボディを返す。
 
-| 例外                        | HTTP ステータス |
-|---------------------------|-------------|
-| UserAlreadyExistsException | 409 Conflict |
-| UserNotFoundException      | 404 Not Found |
-| MethodArgumentNotValidException | 400 Bad Request |
-| その他                      | 500 Internal Server Error |
+| 例外                             | HTTP ステータス            |
+|--------------------------------|------------------------|
+| UserAlreadyExistsException     | 409 Conflict           |
+| UserNotFoundException          | 404 Not Found          |
+| CompanyAlreadyExistsException  | 409 Conflict           |
+| CompanyNotFoundException       | 404 Not Found          |
+| MethodArgumentNotValidException | 400 Bad Request       |
+| その他                           | 500 Internal Server Error |
 
 ### ポート
 Spring Boot デフォルトの **8080** を使用する（Python 版の 8000 とは異なる）。
@@ -236,14 +332,16 @@ Python 版と共通のネットワーク設計を踏襲する。
 ## デプロイスクリプトの方針
 
 ### スクリプト一覧
-| ファイル              | 役割                                    |
-|-------------------|---------------------------------------|
-| scripts/common.sh  | 共通環境変数・ヘルパ関数（他スクリプトから source）        |
-| scripts/build.sh   | Docker イメージビルド → ECR プッシュ            |
-| scripts/deploy-infra.sh | CloudFormation スタック（01-03）をデプロイ    |
-| scripts/deploy-service.sh | ECS スタック（04）をデプロイ → 強制デプロイ  |
-| scripts/deploy-all.sh | 上記 3 スクリプトをまとめて実行                  |
-| scripts/delete-all.sh  | 全スタックを逆順で削除                         |
+| ファイル                      | 役割                                          |
+|---------------------------|---------------------------------------------|
+| scripts/common.sh          | 共通環境変数・ヘルパ関数（他スクリプトから source）            |
+| scripts/build.sh           | Docker イメージビルド → ECR プッシュ                |
+| scripts/deploy-infra.sh    | CloudFormation スタック（01-03）をデプロイ          |
+| scripts/deploy-service.sh  | ECS スタック（04）をデプロイ → 強制デプロイ              |
+| scripts/deploy-all.sh      | 上記 3 スクリプトをまとめて実行                        |
+| scripts/delete-all.sh      | 全スタックを逆順で削除                               |
+| scripts/local-infra.sh     | ローカル開発用インフラ起動・停止（MySQL + DynamoDB Local） |
+| scripts/local-run.sh       | ローカル開発用 Spring Boot 起動（インフラ起動も含む）        |
 
 ### 共通設定（common.sh）
 ```bash
