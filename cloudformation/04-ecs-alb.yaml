@@ -15,6 +15,14 @@ Parameters:
     Type: String
     Default: users
     Description: DynamoDB table name injected as env var DYNAMODB_USERS_TABLE
+  MySqlUsername:
+    Type: String
+    Default: appuser
+    Description: RDS MySQL master username
+  MySqlPassword:
+    Type: String
+    NoEcho: true
+    Description: RDS MySQL master password
   DesiredCount:
     Type: Number
     Default: 1
@@ -144,6 +152,19 @@ Resources:
               Value: !Ref UsersTableName
             # DYNAMODB_ENDPOINT_URL は本番では未設定（デフォルトのリージョンエンドポイントを使用）
 
+            # ----- MySQL（Company API）接続設定 -----
+            - Name: MYSQL_URL
+              Value: !Sub
+                - "jdbc:mysql://${RdsEndpoint}:3306/${DbName}?serverTimezone=UTC&characterEncoding=UTF-8&connectTimeout=10000&socketTimeout=30000&allowPublicKeyRetrieval=true&useSSL=false"
+                - RdsEndpoint: !ImportValue
+                    Fn::Sub: ${ProjectName}-rds-endpoint
+                  DbName: !ImportValue
+                    Fn::Sub: ${ProjectName}-rds-db-name
+            - Name: MYSQL_USER
+              Value: !Ref MySqlUsername
+            - Name: MYSQL_PASSWORD
+              Value: !Ref MySqlPassword
+
             # ----- ADOT Java Agent / Application Signals 設定 -----
             # OTLP/HTTP で CloudWatch Agent サイドカー（localhost:4316）に送信する。
             # awsvpc モードのため同一タスク内は localhost で通信できる。
@@ -190,7 +211,7 @@ Resources:
             Interval: 30
             Timeout: 5
             Retries: 3
-            StartPeriod: 60
+            StartPeriod: 120
 
         # ----- CloudWatch Agent サイドカー（Application Signals 用） -----
         # ECS タスク内で OTLP を 4315/4316 で受信し、AWS Application Signals
@@ -273,6 +294,13 @@ Resources:
       TaskDefinition: !Ref TaskDefinition
       LaunchType: FARGATE
       DesiredCount: !Ref DesiredCount
+      # 旧タスクを先に停止してから新タスクを起動する（ローリングアップデートによる無限ループを防ぐ）
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 0
+        MaximumPercent: 100
+      # Spring Boot 起動に ~50 秒かかるため ALB ヘルスチェック失敗を 180 秒間無視する。
+      # 未設定（デフォルト 0）だと起動中に 3 回連続失敗してタスクが停止されループする。
+      HealthCheckGracePeriodSeconds: 180
       NetworkConfiguration:
         AwsvpcConfiguration:
           AssignPublicIp: DISABLED

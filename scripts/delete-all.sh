@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # 全 CloudFormation スタックを逆順で削除する。
 #
-# 削除順: ECS → DynamoDB → ECR → Network
-# ※ DynamoDB テーブルのデータも削除される。
+# 削除順: ECS → RDS → DynamoDB → ECR → Network
+# ※ DynamoDB テーブルのデータ・RDS インスタンスも削除される。
 # ※ ECR のイメージは stack 削除前に一括削除する（残存イメージがあると DeleteRepository が失敗するため）。
 set -euo pipefail
 
@@ -81,7 +81,10 @@ delete_ecr_images() {
 }
 
 # 逆順で削除する（依存関係の逆順）
+# 04 (ECS) は 05 (RDS) と 03 (DynamoDB) に依存するため最初に削除
 delete_stack "${ECS_STACK}"
+# 05 (RDS) は 01 (Network) に依存するため ECS 削除後に削除
+delete_stack "${RDS_STACK}"
 delete_stack "${DYNAMODB_STACK}"
 delete_ecr_images
 delete_stack "${ECR_STACK}"

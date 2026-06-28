@@ -9,6 +9,7 @@ export AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION:-ap-northeast-1}"
 export NETWORK_STACK="${PROJECT_NAME}-network"
 export ECR_STACK="${PROJECT_NAME}-ecr"
 export DYNAMODB_STACK="${PROJECT_NAME}-dynamodb"
+export RDS_STACK="${PROJECT_NAME}-rds"
 export ECS_STACK="${PROJECT_NAME}-ecs"
 
 # CloudFormation テンプレートのディレクトリ（このファイルの ../cloudformation/）
@@ -55,6 +56,18 @@ deploy_stack() {
     cmd+=(--parameter-overrides "${parameters[@]}")
   fi
 
-  "${cmd[@]}"
+  local output
+  output=$("${cmd[@]}" 2>&1)
+  local exit_code=$?
+  echo "${output}"
+
+  # "No changes to deploy" が出力に含まれる場合は変更なし
+  if echo "${output}" | grep -q "No changes to deploy"; then
+    STACK_CHANGED=false
+  else
+    STACK_CHANGED=true
+  fi
+
   log_success "Stack deployed: ${stack_name}"
+  return "${exit_code}"
 }

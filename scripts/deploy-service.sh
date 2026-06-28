@@ -3,6 +3,9 @@
 #
 # IMAGE_URI が未指定の場合は .last_image_uri から読み込む（build.sh が生成する）。
 #
+# 必要な環境変数:
+#   MYSQL_DB_PASSWORD  RDS MySQL マスターパスワード（必須）
+#
 # 【強制デプロイが必要な理由】
 # タスク定義の ImageUri が変わらない場合（再ビルドでも同タグを使った等）、
 # CloudFormation は変更なしと判断して新しいイメージを反映しない。
@@ -13,6 +16,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="${SCRIPT_DIR}/.."
 # shellcheck source=scripts/common.sh
 source "${SCRIPT_DIR}/common.sh"
+
+# RDS パスワードチェック
+: "${MYSQL_DB_PASSWORD:?MYSQL_DB_PASSWORD is not set. Export it before running deploy scripts.}"
 
 # IMAGE_URI の解決
 if [[ -z "${IMAGE_URI:-}" ]]; then
@@ -31,7 +37,9 @@ log "Image URI: ${IMAGE_URI}"
 
 deploy_stack "${ECS_STACK}" "${CF_DIR}/04-ecs-alb.yaml" \
   "ProjectName=${PROJECT_NAME}" \
-  "ImageUri=${IMAGE_URI}"
+  "ImageUri=${IMAGE_URI}" \
+  "MySqlUsername=${MYSQL_DB_USERNAME:-appuser}" \
+  "MySqlPassword=${MYSQL_DB_PASSWORD}"
 
 # ECS クラスター名とサービス名を CloudFormation Output から取得する
 ECS_CLUSTER=$(aws cloudformation describe-stacks \
@@ -46,13 +54,20 @@ ECS_SERVICE=$(aws cloudformation describe-stacks \
   --query 'Stacks[0].Outputs[?OutputKey==`ECSServiceName`].OutputValue' \
   --output text)
 
-log "Forcing new ECS deployment: cluster=${ECS_CLUSTER} service=${ECS_SERVICE}"
-aws ecs update-service \
-  --cluster "${ECS_CLUSTER}" \
-  --service "${ECS_SERVICE}" \
-  --force-new-deployment \
-  --region "${AWS_DEFAULT_REGION}" \
-  --output text >/dev/null
+# CloudFormation に変更がなかった場合のみ force-new-deployment を実行する。
+# 変更があった場合は CloudFormation が ECS デプロイを完了させているため不要。
+# （force-new-deployment を重複実行すると正常稼働中のタスクが再置換されてしまう）
+if [[ "${STACK_CHANGED}" == "false" ]]; then
+  log "CloudFormation に変更なし。force-new-deployment で最新イメージを反映します: cluster=${ECS_CLUSTER} service=${ECS_SERVICE}"
+  aws ecs update-service \
+    --cluster "${ECS_CLUSTER}" \
+    --service "${ECS_SERVICE}" \
+    --force-new-deployment \
+    --region "${AWS_DEFAULT_REGION}" \
+    --output text >/dev/null
+else
+  log "CloudFormation がデプロイを完了済み。force-new-deployment はスキップします。"
+fi
 
 # ALB DNS 名を表示する
 ALB_DNS=$(aws cloudformation describe-stacks \
