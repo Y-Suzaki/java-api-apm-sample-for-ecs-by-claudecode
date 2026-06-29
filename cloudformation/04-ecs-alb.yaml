@@ -246,14 +246,6 @@ Resources:
               awslogs-group: !Ref LogGroup
               awslogs-region: !Ref AWS::Region
               awslogs-stream-prefix: api
-          HealthCheck:
-            Command:
-              - CMD-SHELL
-              - curl -f http://localhost:8080/health || exit 1
-            Interval: 30
-            Timeout: 5
-            Retries: 3
-            StartPeriod: 120
 
         # ----- CloudWatch Agent サイドカー（Application Signals 用） -----
         # ECS タスク内で OTLP を 4315/4316 で受信し、AWS Application Signals
@@ -323,6 +315,54 @@ Resources:
       Protocol: HTTP
       Port: 80
       DefaultActions:
+        - Type: fixed-response
+          FixedResponseConfig:
+            StatusCode: "404"
+            ContentType: application/json
+            MessageBody: '{"error":"Not Found"}'
+
+  # /health, /configuration → TG へ転送
+  ALBListenerRuleGeneral:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      ListenerArn: !Ref ALBListener
+      Priority: 1
+      Conditions:
+        - Field: path-pattern
+          Values:
+            - /health
+            - /configuration
+      Actions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroup
+
+  # /users, /users/* → TG へ転送
+  ALBListenerRuleUsers:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      ListenerArn: !Ref ALBListener
+      Priority: 2
+      Conditions:
+        - Field: path-pattern
+          Values:
+            - /users
+            - /users/*
+      Actions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroup
+
+  # /companies, /companies/* → TG へ転送
+  ALBListenerRuleCompanies:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      ListenerArn: !Ref ALBListener
+      Priority: 3
+      Conditions:
+        - Field: path-pattern
+          Values:
+            - /companies
+            - /companies/*
+      Actions:
         - Type: forward
           TargetGroupArn: !Ref TargetGroup
 
