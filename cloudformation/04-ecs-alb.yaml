@@ -116,6 +116,48 @@ Resources:
       LogGroupName: !Sub /ecs/${ProjectName}
       RetentionInDays: 30
 
+  # ── X-Ray Sampling Rule ──────────────────────────────────────────────────
+  # /health エンドポイントを X-Ray トレースから除外する。
+  # ALB ヘルスチェックのスパンがトレースに大量に記録されるのを防ぐ。
+  # FixedRate: 0 / ReservoirSize: 0 でサンプリング率ゼロ（記録しない）。
+  # Priority: 1 = デフォルトルール（10000）より先に評価される。
+  # Application Signals のメトリクスはトレースサンプリングとは独立しているため影響なし。
+  HealthCheckSamplingRule:
+    Type: AWS::XRay::SamplingRule
+    Properties:
+      SamplingRule:
+        RuleName: !Sub ${ProjectName}-exclude-health
+        Priority: 1
+        ReservoirSize: 0
+        FixedRate: 0
+        Host: "*"
+        HTTPMethod: GET
+        ServiceName: !Sub ${ProjectName}-api
+        ServiceType: "*"
+        URLPath: /health
+        ResourceARN: "*"
+        Version: 1
+
+  # サービス全体のサンプリングルール（/health 除外後の全パスを明示的にカバー）。
+  # Priority: 2 = /health 除外ルール（1）の次に評価される。
+  # Default ルール（10000）へのフォールスルーに依存せず、サービス固有ルールで明示的に 5% サンプリングする。
+  # これにより ADOT v2 + Application Signals のフォールスルー問題を回避する。
+  ServiceSamplingRule:
+    Type: AWS::XRay::SamplingRule
+    Properties:
+      SamplingRule:
+        RuleName: !Sub ${ProjectName}-sample-all
+        Priority: 2
+        ReservoirSize: 1
+        FixedRate: 0.05
+        Host: "*"
+        HTTPMethod: "*"
+        ServiceName: !Sub ${ProjectName}-api
+        ServiceType: "*"
+        URLPath: "*"
+        ResourceARN: "*"
+        Version: 1
+
   # ── ECS ──────────────────────────────────────────────────────────────────
   ECSCluster:
     Type: AWS::ECS::Cluster
