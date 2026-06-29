@@ -19,8 +19,8 @@ com.example:java-api-apm-sample:jar:0.0.1-SNAPSHOT
 |  |  +- com.fasterxml.jackson.datatype:jackson-datatype-jsr310:jar:2.21.2:compile
 |  |  \- com.fasterxml.jackson.module:jackson-module-parameter-names:jar:2.21.2:compile
 |  +- org.springframework.boot:spring-boot-starter-tomcat:jar:3.5.14:compile
-|  |  +- org.apache.tomcat.embed:tomcat-embed-core:jar:10.1.54:compile
-|  |  \- org.apache.tomcat.embed:tomcat-embed-websocket:jar:10.1.54:compile
+|  |  +- org.apache.tomcat.embed:tomcat-embed-core:jar:11.0.22:compile
+|  |  \- org.apache.tomcat.embed:tomcat-embed-websocket:jar:11.0.22:compile
 |  +- org.springframework:spring-web:jar:6.2.18:compile
 |  |  +- org.springframework:spring-beans:jar:6.2.18:compile
 |  |  \- io.micrometer:micrometer-observation:jar:1.15.11:compile
@@ -30,7 +30,7 @@ com.example:java-api-apm-sample:jar:0.0.1-SNAPSHOT
 |     +- org.springframework:spring-context:jar:6.2.18:compile
 |     \- org.springframework:spring-expression:jar:6.2.18:compile
 +- org.springframework.boot:spring-boot-starter-validation:jar:3.5.14:compile
-|  +- org.apache.tomcat.embed:tomcat-embed-el:jar:10.1.54:compile
+|  +- org.apache.tomcat.embed:tomcat-embed-el:jar:11.0.22:compile
 |  \- org.hibernate.validator:hibernate-validator:jar:8.0.3.Final:compile
 |     +- jakarta.validation:jakarta.validation-api:jar:3.0.2:compile
 |     +- org.jboss.logging:jboss-logging:jar:3.6.3.Final:compile

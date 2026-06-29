@@ -20,6 +20,7 @@
 
     <properties>
         <java.version>17</java.version>
+        <tomcat.version>11.0.22</tomcat.version>
         <!--
             Spring Cloud BOM バージョン。
             Spring Boot 3.5.x には Spring Cloud 2025.0.x (Newport) が必要。
