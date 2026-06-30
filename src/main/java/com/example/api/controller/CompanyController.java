@@ -1,6 +1,7 @@
 package com.example.api.controller;
 
 import com.example.api.model.CompanyCreateRequest;
+import com.example.api.model.CompanyDetailResponse;
 import com.example.api.model.CompanyResponse;
 import com.example.api.model.CompanyUpdateRequest;
 import com.example.api.service.CompanyService;
@@ -44,7 +45,7 @@ public class CompanyController {
     }
 
     @GetMapping("/{id}")
-    public CompanyResponse getCompany(@PathVariable Long id) {
+    public CompanyDetailResponse getCompany(@PathVariable Long id) {
         return companyService.get(id);
     }
 

@@ -70,6 +70,15 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * 指定子会社が存在しない場合: 404 Not Found。
+     */
+    @ExceptionHandler(SubsidiaryNotFoundException.class)
+    @ResponseStatus(HttpStatus.NOT_FOUND)
+    public ErrorResponse handleSubsidiaryNotFound(SubsidiaryNotFoundException ex) {
+        return new ErrorResponse(ex.getMessage());
+    }
+
+    /**
      * @RequestBody のバリデーション失敗: 400 Bad Request。
      *
      * <p>@Valid が付いた @RequestBody のバリデーションに失敗すると Spring MVC が

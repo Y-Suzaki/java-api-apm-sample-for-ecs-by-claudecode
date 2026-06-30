@@ -3,6 +3,7 @@ package com.example.api.service;
 import com.example.api.exception.CompanyAlreadyExistsException;
 import com.example.api.exception.CompanyNotFoundException;
 import com.example.api.model.CompanyCreateRequest;
+import com.example.api.model.CompanyDetailResponse;
 import com.example.api.model.CompanyEntity;
 import com.example.api.model.CompanyResponse;
 import com.example.api.model.CompanyUpdateRequest;
@@ -44,9 +45,9 @@ public class CompanyService {
     }
 
     @Transactional(readOnly = true)
-    public CompanyResponse get(Long id) {
-        return companyRepository.findById(id)
-                .map(CompanyResponse::from)
+    public CompanyDetailResponse get(Long id) {
+        return companyRepository.findByIdWithSubsidiaries(id)
+                .map(CompanyDetailResponse::from)
                 .orElseThrow(() -> new CompanyNotFoundException(id));
     }
 
