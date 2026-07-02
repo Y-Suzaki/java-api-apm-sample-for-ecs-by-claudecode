@@ -1,0 +1,415 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  ECS Fargate service + ALB stack.
+  Imports VPC/subnet IDs from network stack and DynamoDB ARN from dynamodb stack.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: java-apm-sample
+  ImageUri:
+    Type: String
+    Description: >
+      ECR image URI with tag. e.g. 123456789.dkr.ecr.ap-northeast-1.amazonaws.com/java-apm-sample:abc1234
+  UsersTableName:
+    Type: String
+    Default: users
+    Description: DynamoDB table name injected as env var DYNAMODB_USERS_TABLE
+  MySqlUsername:
+    Type: String
+    Default: appuser
+    Description: RDS MySQL master username
+  MySqlPassword:
+    Type: String
+    NoEcho: true
+    Description: RDS MySQL master password
+  DesiredCount:
+    Type: Number
+    Default: 1
+    Description: Number of ECS tasks
+
+Resources:
+
+  # ── Security Groups ──────────────────────────────────────────────────────
+  ALBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub ${ProjectName}-alb-sg
+      GroupDescription: Allow HTTP from anywhere to ALB
+      VpcId: !ImportValue
+        Fn::Sub: ${ProjectName}-vpc-id
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+
+  ECSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub ${ProjectName}-ecs-sg
+      GroupDescription: Allow port 8080 from ALB only
+      VpcId: !ImportValue
+        Fn::Sub: ${ProjectName}-vpc-id
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 8080
+          ToPort: 8080
+          SourceSecurityGroupId: !Ref ALBSecurityGroup
+
+  # ── IAM Roles ────────────────────────────────────────────────────────────
+  # TaskExecutionRole: ECS エージェントが ECR からイメージを pull し、CloudWatch Logs に書き込むための権限
+  TaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${ProjectName}-task-execution-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+
+  # TaskRole: コンテナ内アプリと CloudWatch Agent サイドカーが使用する権限
+  # - DynamoDB CRUD: アプリコンテナが users テーブルにアクセスするための権限
+  # - AWSXRayDaemonWriteAccess: CloudWatch Agent が X-Ray にトレースを送信するための権限
+  # - CloudWatchAgentServerPolicy: CloudWatch Agent が Application Signals メトリクスを送信するための権限
+  #   （サイドカーもタスクロールを共有する）
+  TaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${ProjectName}-task-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AWSXRayDaemonWriteAccess
+        - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
+      Policies:
+        - PolicyName: DynamoDBCRUD
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:Query
+                  - dynamodb:Scan
+                Resource:
+                  - !ImportValue
+                    Fn::Sub: ${ProjectName}-users-table-arn
+
+  # ── CloudWatch Logs ──────────────────────────────────────────────────────
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /ecs/${ProjectName}
+      RetentionInDays: 30
+
+  # ── X-Ray Sampling Rule ──────────────────────────────────────────────────
+  # /health エンドポイントを X-Ray トレースから除外する。
+  # ALB ヘルスチェックのスパンがトレースに大量に記録されるのを防ぐ。
+  # FixedRate: 0 / ReservoirSize: 0 でサンプリング率ゼロ（記録しない）。
+  # Priority: 1 = デフォルトルール（10000）より先に評価される。
+  # Application Signals のメトリクスはトレースサンプリングとは独立しているため影響なし。
+  HealthCheckSamplingRule:
+    Type: AWS::XRay::SamplingRule
+    Properties:
+      SamplingRule:
+        RuleName: !Sub ${ProjectName}-exclude-health
+        Priority: 1
+        ReservoirSize: 0
+        FixedRate: 0
+        Host: "*"
+        HTTPMethod: GET
+        ServiceName: !Sub ${ProjectName}-api
+        ServiceType: "*"
+        URLPath: /health
+        ResourceARN: "*"
+        Version: 1
+
+  # サービス全体のサンプリングルール（/health 除外後の全パスを明示的にカバー）。
+  # Priority: 2 = /health 除外ルール（1）の次に評価される。
+  # Default ルール（10000）へのフォールスルーに依存せず、サービス固有ルールで明示的に 5% サンプリングする。
+  # これにより ADOT v2 + Application Signals のフォールスルー問題を回避する。
+  ServiceSamplingRule:
+    Type: AWS::XRay::SamplingRule
+    Properties:
+      SamplingRule:
+        RuleName: !Sub ${ProjectName}-sample-all
+        Priority: 2
+        ReservoirSize: 1
+        FixedRate: 0.05
+        Host: "*"
+        HTTPMethod: "*"
+        ServiceName: !Sub ${ProjectName}-api
+        ServiceType: "*"
+        URLPath: "*"
+        ResourceARN: "*"
+        Version: 1
+
+  # ── ECS ──────────────────────────────────────────────────────────────────
+  ECSCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub ${ProjectName}-cluster
+
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub ${ProjectName}-task
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      # CloudWatch Agent サイドカー追加に伴い 512/1024 に引き上げ（サイドカーが常駐 ~50MiB 消費するため）
+      Cpu: 512
+      Memory: 1024
+      ExecutionRoleArn: !GetAtt TaskExecutionRole.Arn
+      TaskRoleArn: !GetAtt TaskRole.Arn
+      ContainerDefinitions:
+
+        # ----- アプリケーションコンテナ -----
+        - Name: !Sub ${ProjectName}-container
+          Image: !Ref ImageUri
+          Essential: true
+          PortMappings:
+            - ContainerPort: 8080
+              Protocol: tcp
+          Environment:
+            - Name: APP_ENV
+              Value: prod
+            - Name: AWS_REGION
+              Value: !Ref AWS::Region
+            - Name: DYNAMODB_USERS_TABLE
+              Value: !Ref UsersTableName
+            # DYNAMODB_ENDPOINT_URL は本番では未設定（デフォルトのリージョンエンドポイントを使用）
+
+            # ----- MySQL（Company API）接続設定 -----
+            - Name: MYSQL_URL
+              Value: !Sub
+                - "jdbc:mysql://${RdsEndpoint}:3306/${DbName}?serverTimezone=UTC&characterEncoding=UTF-8&connectTimeout=10000&socketTimeout=30000&allowPublicKeyRetrieval=true&useSSL=false"
+                - RdsEndpoint: !ImportValue
+                    Fn::Sub: ${ProjectName}-rds-endpoint
+                  DbName: !ImportValue
+                    Fn::Sub: ${ProjectName}-rds-db-name
+            - Name: MYSQL_USER
+              Value: !Ref MySqlUsername
+            - Name: MYSQL_PASSWORD
+              Value: !Ref MySqlPassword
+
+            # ----- ADOT Java Agent / Application Signals 設定 -----
+            # OTLP/HTTP で CloudWatch Agent サイドカー（localhost:4316）に送信する。
+            # awsvpc モードのため同一タスク内は localhost で通信できる。
+            - Name: OTEL_EXPORTER_OTLP_PROTOCOL
+              Value: http/protobuf
+            - Name: OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
+              Value: http://localhost:4316/v1/traces
+            - Name: OTEL_AWS_APPLICATION_SIGNALS_ENABLED
+              Value: "true"
+            - Name: OTEL_AWS_APPLICATION_SIGNALS_EXPORTER_ENDPOINT
+              Value: http://localhost:4316/v1/metrics
+            # Application Signals 経由でメトリクスを送るため OTLP の metrics/logs 直送は無効化する
+            - Name: OTEL_METRICS_EXPORTER
+              Value: none
+            - Name: OTEL_LOGS_EXPORTER
+              Value: none
+            # X-Ray Central Sampling（CloudWatch Agent が UDP/2000 でサンプリングプロキシとして動作）
+            - Name: OTEL_TRACES_SAMPLER
+              Value: xray
+            - Name: OTEL_TRACES_SAMPLER_ARG
+              Value: endpoint=http://localhost:2000
+            # X-Ray トレース ID 互換のプロパゲーター（Application Signals 推奨構成）
+            - Name: OTEL_PROPAGATORS
+              Value: tracecontext,baggage,b3,xray
+            - Name: OTEL_SERVICE_NAME
+              Value: !Sub ${ProjectName}-api
+            - Name: OTEL_RESOURCE_ATTRIBUTES
+              Value: !Sub deployment.environment=prod,service.namespace=${ProjectName}
+          # サイドカー（otel-collector）が起動してからアプリを起動させる。
+          # 起動直後のスパン送信で接続失敗ログが出るのを防ぐ。
+          DependsOn:
+            - ContainerName: otel-collector
+              Condition: START
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref LogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: api
+
+        # ----- CloudWatch Agent サイドカー（Application Signals 用） -----
+        # ECS タスク内で OTLP を 4315/4316 で受信し、AWS Application Signals
+        # （X-Ray トレース + CloudWatch メトリクス）にエクスポートする。
+        # X-Ray Central Sampling の UDP プロキシ（:2000）も本コンテナが担う。
+        # X-Ray / CloudWatch への送信権限は TaskRole から付与する。
+        - Name: otel-collector
+          Image: public.ecr.aws/cloudwatch-agent/cloudwatch-agent:latest
+          Essential: true
+          Environment:
+            - Name: CW_CONFIG_CONTENT
+              Value: |
+                {
+                  "traces": {
+                    "traces_collected": {
+                      "application_signals": {}
+                    }
+                  },
+                  "logs": {
+                    "metrics_collected": {
+                      "application_signals": {}
+                    }
+                  }
+                }
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref LogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: cwagent
+
+  # ── ALB ──────────────────────────────────────────────────────────────────
+  ALB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub ${ProjectName}-alb
+      Scheme: internet-facing
+      Type: application
+      Subnets:
+        - !ImportValue
+          Fn::Sub: ${ProjectName}-public-subnet-1a-id
+        - !ImportValue
+          Fn::Sub: ${ProjectName}-public-subnet-1c-id
+      SecurityGroups:
+        - !Ref ALBSecurityGroup
+
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub ${ProjectName}-tg
+      Protocol: HTTP
+      Port: 8080
+      VpcId: !ImportValue
+        Fn::Sub: ${ProjectName}-vpc-id
+      TargetType: ip
+      HealthCheckPath: /health
+      HealthCheckProtocol: HTTP
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+
+  ALBListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ALB
+      Protocol: HTTP
+      Port: 80
+      DefaultActions:
+        - Type: fixed-response
+          FixedResponseConfig:
+            StatusCode: "404"
+            ContentType: application/json
+            MessageBody: '{"error":"Not Found"}'
+
+  # /health, /configuration → TG へ転送
+  ALBListenerRuleGeneral:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      ListenerArn: !Ref ALBListener
+      Priority: 1
+      Conditions:
+        - Field: path-pattern
+          Values:
+            - /health
+            - /configuration
+      Actions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroup
+
+  # /users, /users/* → TG へ転送
+  ALBListenerRuleUsers:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      ListenerArn: !Ref ALBListener
+      Priority: 2
+      Conditions:
+        - Field: path-pattern
+          Values:
+            - /users
+            - /users/*
+      Actions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroup
+
+  # /companies, /companies/* → TG へ転送
+  ALBListenerRuleCompanies:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      ListenerArn: !Ref ALBListener
+      Priority: 3
+      Conditions:
+        - Field: path-pattern
+          Values:
+            - /companies
+            - /companies/*
+      Actions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroup
+
+  # ── ECS Service ──────────────────────────────────────────────────────────
+  ECSService:
+    Type: AWS::ECS::Service
+    DependsOn: ALBListener
+    Properties:
+      ServiceName: !Sub ${ProjectName}-service
+      Cluster: !Ref ECSCluster
+      TaskDefinition: !Ref TaskDefinition
+      LaunchType: FARGATE
+      DesiredCount: !Ref DesiredCount
+      # 旧タスクを先に停止してから新タスクを起動する（ローリングアップデートによる無限ループを防ぐ）
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 0
+        MaximumPercent: 100
+      # Spring Boot 起動に ~50 秒かかるため ALB ヘルスチェック失敗を 180 秒間無視する。
+      # 未設定（デフォルト 0）だと起動中に 3 回連続失敗してタスクが停止されループする。
+      HealthCheckGracePeriodSeconds: 180
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets:
+            - !ImportValue
+              Fn::Sub: ${ProjectName}-private-subnet-1a-id
+            - !ImportValue
+              Fn::Sub: ${ProjectName}-private-subnet-1c-id
+          SecurityGroups:
+            - !Ref ECSSecurityGroup
+      LoadBalancers:
+        - ContainerName: !Sub ${ProjectName}-container
+          ContainerPort: 8080
+          TargetGroupArn: !Ref TargetGroup
+
+Outputs:
+  ALBDnsName:
+    Value: !GetAtt ALB.DNSName
+    Export:
+      Name: !Sub ${ProjectName}-alb-dns
+
+  ECSClusterName:
+    Value: !Ref ECSCluster
+    Export:
+      Name: !Sub ${ProjectName}-ecs-cluster-name
+
+  ECSServiceName:
+    Value: !GetAtt ECSService.Name
+    Export:
+      Name: !Sub ${ProjectName}-ecs-service-name

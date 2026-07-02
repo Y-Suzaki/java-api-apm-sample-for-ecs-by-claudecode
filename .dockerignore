@@ -1,0 +1,10 @@
+target/
+.git/
+.gitignore
+*.md
+.idea/
+*.iml
+scripts/
+cloudformation/
+.last_image_uri
+.dockerignore
