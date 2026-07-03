@@ -49,7 +49,6 @@ com.example:java-api-apm-sample:jar:0.0.1-SNAPSHOT
 |  |  \- org.springframework.security:spring-security-crypto:jar:6.5.10:compile
 |  +- io.github.openfeign:feign-core:jar:13.6:compile
 |  \- io.github.openfeign:feign-slf4j:jar:13.6:compile
-|     \- org.slf4j:slf4j-api:jar:2.0.17:compile
 +- com.amazonaws:aws-java-sdk-dynamodb:jar:1.12.779:compile
 |  +- com.amazonaws:aws-java-sdk-s3:jar:1.12.779:compile
 |  |  \- com.amazonaws:aws-java-sdk-kms:jar:1.12.779:compile
@@ -86,6 +85,50 @@ com.example:java-api-apm-sample:jar:0.0.1-SNAPSHOT
 |  \- org.springframework:spring-aspects:jar:6.2.18:compile
 |     \- org.aspectj:aspectjweaver:jar:1.9.25.1:compile
 +- com.mysql:mysql-connector-j:jar:9.7.0:runtime
++- io.awspring.cloud:spring-cloud-aws-starter-secrets-manager:jar:3.4.0:compile
+|  +- io.awspring.cloud:spring-cloud-aws-secrets-manager:jar:3.4.0:compile
+|  |  +- io.awspring.cloud:spring-cloud-aws-core:jar:3.4.0:compile
+|  |  |  +- software.amazon.awssdk:regions:jar:2.31.54:compile
+|  |  |  |  \- software.amazon.awssdk:profiles:jar:2.31.54:compile
+|  |  |  \- software.amazon.awssdk:auth:jar:2.31.54:compile
+|  |  |     +- software.amazon.awssdk:http-auth-aws-eventstream:jar:2.31.54:compile
+|  |  |     \- software.amazon.eventstream:eventstream:jar:1.0.1:compile
+|  |  \- software.amazon.awssdk:secretsmanager:jar:2.31.54:compile
+|  |     +- software.amazon.awssdk:aws-json-protocol:jar:2.31.54:compile
+|  |     |  \- software.amazon.awssdk:third-party-jackson-core:jar:2.31.54:compile
+|  |     +- software.amazon.awssdk:protocol-core:jar:2.31.54:compile
+|  |     +- software.amazon.awssdk:http-auth-aws:jar:2.31.54:compile
+|  |     |  +- software.amazon.awssdk:checksums-spi:jar:2.31.54:compile
+|  |     |  \- software.amazon.awssdk:checksums:jar:2.31.54:compile
+|  |     +- software.amazon.awssdk:sdk-core:jar:2.31.54:compile
+|  |     |  +- software.amazon.awssdk:retries:jar:2.31.54:compile
+|  |     |  \- org.reactivestreams:reactive-streams:jar:1.0.4:compile
+|  |     +- software.amazon.awssdk:http-auth-spi:jar:2.31.54:compile
+|  |     +- software.amazon.awssdk:http-auth:jar:2.31.54:compile
+|  |     +- software.amazon.awssdk:identity-spi:jar:2.31.54:compile
+|  |     +- software.amazon.awssdk:http-client-spi:jar:2.31.54:compile
+|  |     +- software.amazon.awssdk:annotations:jar:2.31.54:compile
+|  |     +- software.amazon.awssdk:utils:jar:2.31.54:compile
+|  |     +- software.amazon.awssdk:aws-core:jar:2.31.54:compile
+|  |     +- software.amazon.awssdk:metrics-spi:jar:2.31.54:compile
+|  |     +- software.amazon.awssdk:json-utils:jar:2.31.54:compile
+|  |     +- software.amazon.awssdk:endpoints-spi:jar:2.31.54:compile
+|  |     +- software.amazon.awssdk:retries-spi:jar:2.31.54:compile
+|  |     +- software.amazon.awssdk:apache-client:jar:2.31.54:runtime
+|  |     \- software.amazon.awssdk:netty-nio-client:jar:2.31.54:runtime
+|  |        +- io.netty:netty-codec-http:jar:4.1.132.Final:runtime
+|  |        +- io.netty:netty-codec-http2:jar:4.1.132.Final:runtime
+|  |        +- io.netty:netty-codec:jar:4.1.132.Final:runtime
+|  |        +- io.netty:netty-transport:jar:4.1.132.Final:runtime
+|  |        +- io.netty:netty-common:jar:4.1.132.Final:runtime
+|  |        +- io.netty:netty-buffer:jar:4.1.132.Final:runtime
+|  |        +- io.netty:netty-handler:jar:4.1.132.Final:runtime
+|  |        |  \- io.netty:netty-transport-native-unix-common:jar:4.1.132.Final:runtime
+|  |        +- io.netty:netty-transport-classes-epoll:jar:4.1.132.Final:runtime
+|  |        \- io.netty:netty-resolver:jar:4.1.132.Final:runtime
+|  +- io.awspring.cloud:spring-cloud-aws-starter:jar:3.4.0:compile
+|  |  \- io.awspring.cloud:spring-cloud-aws-autoconfigure:jar:3.4.0:compile
+|  \- org.slf4j:slf4j-api:jar:2.0.17:compile
 \- org.springframework.boot:spring-boot-starter-test:jar:3.5.14:test
    +- org.springframework.boot:spring-boot-test:jar:3.5.14:test
    +- org.springframework.boot:spring-boot-test-autoconfigure:jar:3.5.14:test
