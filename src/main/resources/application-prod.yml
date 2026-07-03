@@ -1,0 +1,12 @@
+# prod プロファイル専用設定。
+# ECS タスク定義の SPRING_PROFILES_ACTIVE=prod で有効化される。
+#
+# RDS マスターパスワードは環境変数ではなく AWS Secrets Manager（RDS 管理シークレット）から取得する。
+# シークレットは JSON 形式（username / password / host / port / dbname 等）で、
+# spring-cloud-aws-starter-secrets-manager が各キーをそのままプロパティとして公開する。
+# シークレット名は MYSQL_SECRET_ARN 環境変数（ECS タスク定義で RDS スタックの Export から注入）で指定する。
+spring:
+  config:
+    import: aws-secretsmanager:${MYSQL_SECRET_ARN}
+  datasource:
+    password: ${password}

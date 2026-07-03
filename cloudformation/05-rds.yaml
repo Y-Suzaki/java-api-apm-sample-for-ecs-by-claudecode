@@ -14,10 +14,6 @@ Parameters:
   DBUsername:
     Type: String
     Default: appuser
-  DBPassword:
-    Type: String
-    NoEcho: true
-    Description: Master password for RDS MySQL instance.
   DBInstanceClass:
     Type: String
     Default: db.t3.micro
@@ -63,6 +59,11 @@ Resources:
   #   - db.t3.micro / Single-AZ / 20GB gp3
   #   - BackupRetentionPeriod: 0（自動バックアップ無効）
   #   - DeletionProtection: false（delete-all.sh で削除可能にする）
+  #
+  # マスターパスワードは RDS 管理シークレット（ManageMasterUserPassword）を利用する。
+  # RDS がパスワードを自動生成し、Secrets Manager 上のシークレットとしてライフサイクル管理する。
+  # デプロイ側で平文パスワードを扱う必要がなくなる（アプリは spring-cloud-aws-starter-secrets-manager
+  # 経由で MasterUserSecret を読み取る。デフォルトの AWS 管理キー aws/secretsmanager で暗号化される）。
   DBInstance:
     Type: AWS::RDS::DBInstance
     DeletionPolicy: Delete
@@ -74,7 +75,7 @@ Resources:
       EngineVersion: !Ref EngineVersion
       DBInstanceClass: !Ref DBInstanceClass
       MasterUsername: !Ref DBUsername
-      MasterUserPassword: !Ref DBPassword
+      ManageMasterUserPassword: true
       AllocatedStorage: "20"
       StorageType: gp3
       MultiAZ: false
@@ -103,3 +104,8 @@ Outputs:
     Value: !Ref DBUsername
     Export:
       Name: !Sub ${ProjectName}-rds-username
+
+  DBMasterUserSecretArn:
+    Value: !GetAtt DBInstance.MasterUserSecret.SecretArn
+    Export:
+      Name: !Sub ${ProjectName}-rds-master-secret-arn

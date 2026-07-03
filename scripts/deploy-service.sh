@@ -3,8 +3,8 @@
 #
 # IMAGE_URI が未指定の場合は .last_image_uri から読み込む（build.sh が生成する）。
 #
-# 必要な環境変数:
-#   MYSQL_DB_PASSWORD  RDS MySQL マスターパスワード（必須）
+# RDS MySQL マスターパスワードは RDS 管理シークレット（ManageMasterUserPassword）を
+# ImportValue で参照するため、デプロイ側でのパスワード指定は不要。
 #
 # 【強制デプロイが必要な理由】
 # タスク定義の ImageUri が変わらない場合（再ビルドでも同タグを使った等）、
@@ -16,9 +16,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="${SCRIPT_DIR}/.."
 # shellcheck source=scripts/common.sh
 source "${SCRIPT_DIR}/common.sh"
-
-# RDS パスワードチェック
-: "${MYSQL_DB_PASSWORD:?MYSQL_DB_PASSWORD is not set. Export it before running deploy scripts.}"
 
 # IMAGE_URI の解決
 if [[ -z "${IMAGE_URI:-}" ]]; then
@@ -38,8 +35,7 @@ log "Image URI: ${IMAGE_URI}"
 deploy_stack "${ECS_STACK}" "${CF_DIR}/04-ecs-alb.yaml" \
   "ProjectName=${PROJECT_NAME}" \
   "ImageUri=${IMAGE_URI}" \
-  "MySqlUsername=${MYSQL_DB_USERNAME:-appuser}" \
-  "MySqlPassword=${MYSQL_DB_PASSWORD}"
+  "MySqlUsername=${MYSQL_DB_USERNAME:-appuser}"
 
 # ECS クラスター名とサービス名を CloudFormation Output から取得する
 ECS_CLUSTER=$(aws cloudformation describe-stacks \
