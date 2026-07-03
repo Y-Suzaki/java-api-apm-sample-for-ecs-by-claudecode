@@ -19,10 +19,6 @@ Parameters:
     Type: String
     Default: appuser
     Description: RDS MySQL master username
-  MySqlPassword:
-    Type: String
-    NoEcho: true
-    Description: RDS MySQL master password
   DesiredCount:
     Type: Number
     Default: 1
@@ -78,6 +74,8 @@ Resources:
   # - AWSXRayDaemonWriteAccess: CloudWatch Agent が X-Ray にトレースを送信するための権限
   # - CloudWatchAgentServerPolicy: CloudWatch Agent が Application Signals メトリクスを送信するための権限
   #   （サイドカーもタスクロールを共有する）
+  # - SecretsManagerReadMySqlSecret: アプリが起動時に spring-cloud-aws-starter-secrets-manager 経由で
+  #   RDS 管理シークレット（マスターパスワード）を読み取るための権限
   TaskRole:
     Type: AWS::IAM::Role
     Properties:
@@ -108,6 +106,16 @@ Resources:
                 Resource:
                   - !ImportValue
                     Fn::Sub: ${ProjectName}-users-table-arn
+        - PolicyName: SecretsManagerReadMySqlSecret
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                Resource:
+                  - !ImportValue
+                    Fn::Sub: ${ProjectName}-rds-master-secret-arn
 
   # ── CloudWatch Logs ──────────────────────────────────────────────────────
   LogGroup:
@@ -188,6 +196,10 @@ Resources:
           Environment:
             - Name: APP_ENV
               Value: prod
+            # spring-cloud-aws-starter-secrets-manager による RDS 管理シークレットの読み込みは
+            # application-prod.yml（spring.config.activate.on-profile: prod）でのみ有効化する
+            - Name: SPRING_PROFILES_ACTIVE
+              Value: prod
             - Name: AWS_REGION
               Value: !Ref AWS::Region
             - Name: DYNAMODB_USERS_TABLE
@@ -204,8 +216,11 @@ Resources:
                     Fn::Sub: ${ProjectName}-rds-db-name
             - Name: MYSQL_USER
               Value: !Ref MySqlUsername
-            - Name: MYSQL_PASSWORD
-              Value: !Ref MySqlPassword
+            # MYSQL_PASSWORD は環境変数に平文で渡さず、RDS 管理シークレットの ARN のみを渡す。
+            # アプリが起動時に spring-cloud-aws-starter-secrets-manager 経由でパスワードを取得する。
+            - Name: MYSQL_SECRET_ARN
+              Value: !ImportValue
+                Fn::Sub: ${ProjectName}-rds-master-secret-arn
 
             # ----- ADOT Java Agent / Application Signals 設定 -----
             # OTLP/HTTP で CloudWatch Agent サイドカー（localhost:4316）に送信する。

@@ -32,6 +32,11 @@
             最新の 1.12.x パッチバージョンは https://mvnrepository.com/artifact/com.amazonaws/aws-java-sdk-dynamodb で確認すること。
         -->
         <aws-java-sdk.version>1.12.779</aws-java-sdk.version>
+        <!--
+            Spring Cloud AWS（io.awspring.cloud）は Spring Cloud 本体とは別プロジェクト・別 BOM で
+            バージョン管理されている。RDS パスワードを AWS Secrets Manager から取得するために使用する。
+        -->
+        <spring-cloud-aws.version>3.4.0</spring-cloud-aws.version>
     </properties>
 
     <dependencies>
@@ -103,6 +108,16 @@
             <scope>runtime</scope>
         </dependency>
 
+        <!--
+            Spring Cloud AWS Secrets Manager Starter: RDS マスターパスワード（AWS Secrets Manager 管理シークレット）を
+            spring.config.import 経由でアプリ起動時に読み込むために使用する。
+            バージョンは spring-cloud-aws-dependencies BOM で管理される（下記 dependencyManagement 参照）。
+        -->
+        <dependency>
+            <groupId>io.awspring.cloud</groupId>
+            <artifactId>spring-cloud-aws-starter-secrets-manager</artifactId>
+        </dependency>
+
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
@@ -120,6 +135,13 @@
                 <groupId>org.springframework.cloud</groupId>
                 <artifactId>spring-cloud-dependencies</artifactId>
                 <version>${spring-cloud.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>io.awspring.cloud</groupId>
+                <artifactId>spring-cloud-aws-dependencies</artifactId>
+                <version>${spring-cloud-aws.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
