@@ -37,6 +37,11 @@
             バージョン管理されている。RDS パスワードを AWS Secrets Manager から取得するために使用する。
         -->
         <spring-cloud-aws.version>3.4.0</spring-cloud-aws.version>
+        <!--
+            WireMock: Feign Client（IpifyClient）のテストで外部 HTTP API（ipify）をスタブ化するために使用する。
+            バージョンは spring-boot-starter-parent の BOM では管理されないため個別指定する。
+        -->
+        <wiremock.version>3.13.2</wiremock.version>
     </properties>
 
     <dependencies>
@@ -121,6 +126,31 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!--
+            Testcontainers: Repository 層のテストで実際の MySQL / DynamoDB Local をコンテナ起動して検証する。
+            バージョンは spring-boot-starter-parent の BOM（testcontainers-bom）で管理される。
+        -->
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>mysql</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!--
+            WireMock: IpifyClient（Feign）のテストで外部 HTTP API をスタブ化するために使用する。
+        -->
+        <dependency>
+            <groupId>org.wiremock</groupId>
+            <artifactId>wiremock-standalone</artifactId>
+            <version>${wiremock.version}</version>
             <scope>test</scope>
         </dependency>
     </dependencies>
