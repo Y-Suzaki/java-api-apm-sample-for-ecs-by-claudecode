@@ -7,7 +7,7 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>3.5.14</version>
+        <version>4.0.7</version>
         <relativePath/>
     </parent>
 
@@ -20,13 +20,12 @@
 
     <properties>
         <java.version>17</java.version>
-        <tomcat.version>11.0.22</tomcat.version>
         <!--
             Spring Cloud BOM バージョン。
-            Spring Boot 3.5.x には Spring Cloud 2025.0.x (Newport) が必要。
-            2024.0.x (Moorgate) は Spring Boot 3.4.x までのサポートのため使用不可。
+            Spring Boot 4.0.x には Spring Cloud 2025.1.x (Oakwood) が必要。
+            2025.0.x (Newport) は Spring Boot 4.0.1 以降と非互換のため使用不可。
         -->
-        <spring-cloud.version>2025.0.0</spring-cloud.version>
+        <spring-cloud.version>2025.1.1</spring-cloud.version>
         <!--
             AWS SDK v1 for Java。サポート終了（EOL）を理解した上で使用する。
             最新の 1.12.x パッチバージョンは https://mvnrepository.com/artifact/com.amazonaws/aws-java-sdk-dynamodb で確認すること。
@@ -36,7 +35,7 @@
             Spring Cloud AWS（io.awspring.cloud）は Spring Cloud 本体とは別プロジェクト・別 BOM で
             バージョン管理されている。RDS パスワードを AWS Secrets Manager から取得するために使用する。
         -->
-        <spring-cloud-aws.version>3.4.0</spring-cloud-aws.version>
+        <spring-cloud-aws.version>4.0.2</spring-cloud-aws.version>
         <!--
             WireMock: Feign Client（IpifyClient）のテストで外部 HTTP API（ipify）をスタブ化するために使用する。
             バージョンは spring-boot-starter-parent の BOM では管理されないため個別指定する。
@@ -130,17 +129,43 @@
         </dependency>
 
         <!--
+            Spring Boot 4.0 のモジュール分割により、spring-boot-starter-test には
+            技術別のテストスライス（@WebMvcTest / @DataJpaTest / @AutoConfigureTestDatabase 等）が
+            含まれなくなったため、技術別のテスト用 starter を個別に追加する。
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-webmvc-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-jpa-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-jpa-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-jdbc-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!--
             Testcontainers: Repository 層のテストで実際の MySQL / DynamoDB Local をコンテナ起動して検証する。
             バージョンは spring-boot-starter-parent の BOM（testcontainers-bom）で管理される。
         -->
         <dependency>
             <groupId>org.testcontainers</groupId>
-            <artifactId>junit-jupiter</artifactId>
+            <artifactId>testcontainers-junit-jupiter</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.testcontainers</groupId>
-            <artifactId>mysql</artifactId>
+            <artifactId>testcontainers-mysql</artifactId>
             <scope>test</scope>
         </dependency>
 
