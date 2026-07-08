@@ -74,6 +74,30 @@ bash scripts/local-run.sh
 bash scripts/local-infra.sh --stop
 ```
 
+## テスト
+
+Spring Boot アップグレード時の回帰検証を主目的として、3 層構成の単体テストを整備している。
+
+| レイヤ | 対象 | 手法 | Docker |
+| --- | --- | --- | --- |
+| Service | `UserService` / `CompanyService` / `SubsidiaryService` | Mockito でリポジトリをモック化 | 不要 |
+| Controller | 各 `*Controller` / `IpifyClient` | `@WebMvcTest` + `@MockitoBean` / WireMock でスタブ化 | 不要 |
+| Repository | `CompanyRepository` / `SubsidiaryRepository` / `UserRepository` | Testcontainers で実 MySQL・DynamoDB Local を起動して検証 | **必要** |
+
+Repository 層は H2 ではなく実 MySQL コンテナを使い、`mysql/init/01_init.sql` をそのままコンテナに
+コピーして本番と同じスキーマ（`DATETIME(6)` や外部キー制約）で検証している
+（Hibernate の `ddl-auto` もテスト時のみ `validate` にしてエンティティ／スキーマの不整合も検出する）。
+
+```bash
+# 全テスト実行（Repository 層があるため Docker デーモンの起動が必要）
+mvn test
+
+# レイヤーを絞って実行する場合
+mvn test -Dtest=UserServiceTest,CompanyServiceTest,SubsidiaryServiceTest
+mvn test -Dtest=HealthControllerTest,UserControllerTest,CompanyControllerTest,SubsidiaryControllerTest,ConfigurationControllerTest
+mvn test -Dtest=CompanyRepositoryTest,SubsidiaryRepositoryTest,UserRepositoryTest
+```
+
 ## API 一覧
 
 ### User API（DynamoDB）
