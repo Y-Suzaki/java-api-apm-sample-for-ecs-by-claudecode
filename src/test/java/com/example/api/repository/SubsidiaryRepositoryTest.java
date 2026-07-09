@@ -49,6 +49,18 @@ class SubsidiaryRepositoryTest implements MySqlContainerSupport {
     }
 
     @Test
+    void existsByCompanyIdAndName_isCaseInsensitive_perCollation() {
+        // Spring Data JPA 4.0 で derived クエリの生成方式が JPQL 文字列生成に変わったため、
+        // 複数条件(AND)を伴うクエリでも utf8mb4_unicode_ci の大文字小文字非依存比較が
+        // 維持されているかを確認する。
+        CompanyEntity acme = entityManager.persistAndFlush(companyOf("Acme"));
+        entityManager.persistAndFlush(subsidiaryOf(acme, "Sub A"));
+
+        assertThat(subsidiaryRepository.existsByCompanyIdAndName(acme.getId(), "sub a")).isTrue();
+        assertThat(subsidiaryRepository.existsByCompanyIdAndName(acme.getId(), "SUB A")).isTrue();
+    }
+
+    @Test
     void existsByCompanyIdAndNameAndIdNot_excludesGivenId() {
         CompanyEntity acme = entityManager.persistAndFlush(companyOf("Acme"));
         SubsidiaryEntity subA = entityManager.persistAndFlush(subsidiaryOf(acme, "Sub A"));
