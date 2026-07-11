@@ -3,6 +3,8 @@ package com.example.api.repository;
 import com.example.api.model.CompanyEntity;
 import com.example.api.model.SubsidiaryEntity;
 import com.example.api.support.MySqlContainerSupport;
+import org.hibernate.Hibernate;
+import org.hibernate.proxy.HibernateProxy;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
@@ -112,6 +114,29 @@ class SubsidiaryRepositoryTest implements MySqlContainerSupport {
         entityManager.clear();
 
         assertThat(entityManager.find(SubsidiaryEntity.class, subsidiaryId)).isNull();
+    }
+
+    @Test
+    void findByIdAndCompanyId_companyAssociationIsLazyProxy() {
+        // Hibernate 7 で @Proxy アノテーションが廃止された影響で、
+        // @ManyToOne(fetch = LAZY) が実際に Proxy として遅延ロードされているかを明示的に検証する。
+        // バイトコード拡張（hibernate-enhance-maven-plugin）は導入していないため、
+        // 動的サブクラス方式の HibernateProxy になる想定。
+        CompanyEntity acme = entityManager.persistAndFlush(companyOf("Acme"));
+        SubsidiaryEntity subA = entityManager.persistAndFlush(subsidiaryOf(acme, "Sub A"));
+        Long subsidiaryId = subA.getId();
+        Long companyId = acme.getId();
+        entityManager.clear(); // 永続コンテキストをクリアし、DB からの再取得で Proxy を生成させる
+
+        SubsidiaryEntity found = subsidiaryRepository.findByIdAndCompanyId(subsidiaryId, companyId).orElseThrow();
+        CompanyEntity company = found.getCompany();
+
+        assertThat(company).isInstanceOf(HibernateProxy.class);
+        assertThat(Hibernate.isInitialized(company)).isFalse();
+
+        assertThat(company.getName()).isEqualTo("Acme"); // アクセスした時点で初めて初期化される
+
+        assertThat(Hibernate.isInitialized(company)).isTrue();
     }
 
     private static CompanyEntity companyOf(String name) {
