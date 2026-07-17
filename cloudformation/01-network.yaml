@@ -1,7 +1,7 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >
   Network stack - VPC, Public/Private subnets (2AZ), IGW, NAT GW (1AZ),
-  DynamoDB Gateway VPC Endpoint.
+  DynamoDB and S3 Gateway VPC Endpoints.
 
 Parameters:
   ProjectName:
@@ -158,6 +158,18 @@ Resources:
     Properties:
       VpcId: !Ref VPC
       ServiceName: !Sub com.amazonaws.${AWS::Region}.dynamodb
+      VpcEndpointType: Gateway
+      RouteTableIds:
+        - !Ref PrivateRouteTable
+
+  # ── S3 Gateway VPC Endpoint（NAT 課金回避） ──────────────────────────────
+  # ECR イメージレイヤーは S3 に格納されているため、Private Subnet からの
+  # イメージプルが NAT GW を経由しないよう Gateway 型 Endpoint を使う。
+  S3Endpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref VPC
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.s3
       VpcEndpointType: Gateway
       RouteTableIds:
         - !Ref PrivateRouteTable
