@@ -5,9 +5,9 @@ import com.example.api.model.SubsidiaryEntity;
 import com.example.api.support.MySqlContainerSupport;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
-import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
-import org.springframework.boot.test.autoconfigure.orm.jpa.TestEntityManager;
+import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
+import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
+import org.springframework.boot.jpa.test.autoconfigure.TestEntityManager;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -16,7 +16,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase.Replace;
+import static org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase.Replace;
 
 /**
  * CompanyRepository を実 MySQL(Testcontainers)に対して検証するテスト。
@@ -52,6 +52,16 @@ class CompanyRepositoryTest implements MySqlContainerSupport {
     }
 
     @Test
+    void existsByName_isCaseInsensitive_perCollation() {
+        // Spring Data JPA 4.0 で derived クエリの生成方式が JPQL 文字列生成に変わったため、
+        // utf8mb4_unicode_ci（大文字小文字を区別しない）照合順序に従った比較が維持されているかを確認する。
+        entityManager.persistAndFlush(companyOf("Acme"));
+
+        assertThat(companyRepository.existsByName("acme")).isTrue();
+        assertThat(companyRepository.existsByName("ACME")).isTrue();
+    }
+
+    @Test
     void existsByNameAndIdNot_excludesGivenId() {
         CompanyEntity acme = entityManager.persistAndFlush(companyOf("Acme"));
         entityManager.persistAndFlush(companyOf("Globex"));
@@ -69,6 +79,20 @@ class CompanyRepositoryTest implements MySqlContainerSupport {
         List<CompanyEntity> result = companyRepository.findAllBy(PageRequest.of(0, 2));
 
         assertThat(result).hasSize(2);
+    }
+
+    @Test
+    void findAllBy_secondPage_returnsRemainingResults() {
+        // LIMIT だけでなく OFFSET を伴う SQL 生成が derived クエリの実装変更後も
+        // 正しく行われているかを確認する（1 ページ目との重複がないこと）。
+        entityManager.persistAndFlush(companyOf("Acme"));
+        entityManager.persistAndFlush(companyOf("Globex"));
+        entityManager.persistAndFlush(companyOf("Initech"));
+
+        List<CompanyEntity> result = companyRepository.findAllBy(PageRequest.of(1, 2));
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).getName()).isEqualTo("Initech");
     }
 
     @Test

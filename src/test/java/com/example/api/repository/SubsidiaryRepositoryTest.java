@@ -3,18 +3,20 @@ package com.example.api.repository;
 import com.example.api.model.CompanyEntity;
 import com.example.api.model.SubsidiaryEntity;
 import com.example.api.support.MySqlContainerSupport;
+import org.hibernate.Hibernate;
+import org.hibernate.proxy.HibernateProxy;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
-import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
-import org.springframework.boot.test.autoconfigure.orm.jpa.TestEntityManager;
+import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
+import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
+import org.springframework.boot.jpa.test.autoconfigure.TestEntityManager;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase.Replace;
+import static org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase.Replace;
 
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = Replace.NONE)
@@ -46,6 +48,18 @@ class SubsidiaryRepositoryTest implements MySqlContainerSupport {
         assertThat(subsidiaryRepository.existsByCompanyIdAndName(acme.getId(), "Sub A")).isTrue();
         // 同名でも別会社配下なら重複扱いにならない
         assertThat(subsidiaryRepository.existsByCompanyIdAndName(globex.getId(), "Sub A")).isFalse();
+    }
+
+    @Test
+    void existsByCompanyIdAndName_isCaseInsensitive_perCollation() {
+        // Spring Data JPA 4.0 で derived クエリの生成方式が JPQL 文字列生成に変わったため、
+        // 複数条件(AND)を伴うクエリでも utf8mb4_unicode_ci の大文字小文字非依存比較が
+        // 維持されているかを確認する。
+        CompanyEntity acme = entityManager.persistAndFlush(companyOf("Acme"));
+        entityManager.persistAndFlush(subsidiaryOf(acme, "Sub A"));
+
+        assertThat(subsidiaryRepository.existsByCompanyIdAndName(acme.getId(), "sub a")).isTrue();
+        assertThat(subsidiaryRepository.existsByCompanyIdAndName(acme.getId(), "SUB A")).isTrue();
     }
 
     @Test
@@ -100,6 +114,29 @@ class SubsidiaryRepositoryTest implements MySqlContainerSupport {
         entityManager.clear();
 
         assertThat(entityManager.find(SubsidiaryEntity.class, subsidiaryId)).isNull();
+    }
+
+    @Test
+    void findByIdAndCompanyId_companyAssociationIsLazyProxy() {
+        // Hibernate 7 で @Proxy アノテーションが廃止された影響で、
+        // @ManyToOne(fetch = LAZY) が実際に Proxy として遅延ロードされているかを明示的に検証する。
+        // バイトコード拡張（hibernate-enhance-maven-plugin）は導入していないため、
+        // 動的サブクラス方式の HibernateProxy になる想定。
+        CompanyEntity acme = entityManager.persistAndFlush(companyOf("Acme"));
+        SubsidiaryEntity subA = entityManager.persistAndFlush(subsidiaryOf(acme, "Sub A"));
+        Long subsidiaryId = subA.getId();
+        Long companyId = acme.getId();
+        entityManager.clear(); // 永続コンテキストをクリアし、DB からの再取得で Proxy を生成させる
+
+        SubsidiaryEntity found = subsidiaryRepository.findByIdAndCompanyId(subsidiaryId, companyId).orElseThrow();
+        CompanyEntity company = found.getCompany();
+
+        assertThat(company).isInstanceOf(HibernateProxy.class);
+        assertThat(Hibernate.isInitialized(company)).isFalse();
+
+        assertThat(company.getName()).isEqualTo("Acme"); // アクセスした時点で初めて初期化される
+
+        assertThat(Hibernate.isInitialized(company)).isTrue();
     }
 
     private static CompanyEntity companyOf(String name) {

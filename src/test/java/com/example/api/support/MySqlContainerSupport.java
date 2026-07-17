@@ -1,6 +1,6 @@
 package com.example.api.support;
 
-import org.testcontainers.containers.MySQLContainer;
+import org.testcontainers.mysql.MySQLContainer;
 import org.testcontainers.utility.MountableFile;
 
 /**
@@ -14,10 +14,10 @@ import org.testcontainers.utility.MountableFile;
  */
 public interface MySqlContainerSupport {
 
-    MySQLContainer<?> MYSQL_CONTAINER = createContainer();
+    MySQLContainer MYSQL_CONTAINER = createContainer();
 
-    private static MySQLContainer<?> createContainer() {
-        MySQLContainer<?> container = new MySQLContainer<>("mysql:8.0")
+    private static MySQLContainer createContainer() {
+        MySQLContainer container = new MySQLContainer("mysql:8.0")
                 .withDatabaseName("sampledb")
                 .withUsername("appuser")
                 .withPassword("apppassword")
