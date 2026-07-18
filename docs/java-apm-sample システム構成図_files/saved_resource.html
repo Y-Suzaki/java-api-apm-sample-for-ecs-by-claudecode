@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<!-- saved from url=(0253)https://a4d6014e-af80-4a31-a5d2-f59846fe7d7b.frame.claudeusercontent.com/_f/1784259336-ec91/?__frame_t=vUPKzYanmaPy-llOum5mBWNO.7474fbcc-414c-48bf-b3f8-d4884675c87a.ffade094-e2d6-4904-84f2-44424336539e.1784263041&__frame_v=manifest.4af8359bd414963e.json -->
+<html><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"><!-- frame-runtime --><!--<base href="/_f/1784259336-ec91/">--><base href="."><script>window.__FRAME_PREAMBLE={"capabilities":{"downloads":"downloads.DUzXFHNF.js","mcp":"mcp.CLzOm9JX.js","permissions":"permissions.C9OCnDjh.js","self":"self.DqF_PxOe.js"},"transforms":"_transforms.DYk1Ltlh.js","comments":"_comments.Dp6RDy7J.js"}</script><script>(function(){"use strict";const ce="modulepreload",le=function(e){return"/"+e},ue={},x=function(t,n,u){let o=Promise.resolve();function s(f){const a=new Event("vite:preloadError",{cancelable:!0});if(a.payload=f,window.dispatchEvent(a),!a.defaultPrevented)throw f}return o.then(f=>{for(const a of f||[])a.status==="rejected"&&s(a.reason);return t().catch(s)})},K=["light","dark","system"];function G(e){if(e==null||typeof e!="object")return!1;const t=e.__frame_init;return t!=null&&typeof t=="object"}function J(e){return e!=null&&typeof e=="object"&&e.__frame_size_poke===!0}function V(e){if(e==null||typeof e!="object")return!1;const t=e.__frame_theme;if(t==null||typeof t!="object")return!1;const n=t.theme;return typeof n=="string"&&K.includes(n)}function Y(e){try{typeof reportError=="function"?reportError(e):setTimeout(()=>{throw e},0)}catch{}}function z(e){if(window===top||e.type==="auxclick"&&e.button!==1)return;const t=e.composedPath?e.composedPath():[e.target];let n=null;for(let f=0;f<t.length;f++){const a=t[f];if(a&&a.matches&&a.matches("a[href],area[href]")){n=a;break}}if(!n&&e.target&&e.target.closest&&(n=e.target.closest("a[href],area[href]")),!n)return;const u=n.getAttribute("href");if(!u)return;let o,s;try{o=new URL(u,document.baseURI),s=new URL(document.baseURI).origin}catch{return}(o.protocol==="http:"||o.protocol==="https:")&&o.origin!==s&&(e.preventDefault(),parent.postMessage({__frame_nav:!0,url:o.href},"*"))}const D={};function T(e){if(window===top)return;const t=Date.now();t-(D[e]||0)<500||(D[e]=t,parent.postMessage({__frame_engaged:!0,kind:e},"*"))}const Q=2e3,U=["wheel","touchstart","touchmove","keydown","pointerdown"];let B=0;function X(e){e.isTrusted&&(B=Date.now())}function Z(){addEventListener("click",z,!0),addEventListener("auxclick",z,!0)}function ee(){for(let e=0;e<U.length;e++)addEventListener(U[e],X,{capture:!0,passive:!0});addEventListener("scroll",e=>{e.isTrusted&&Date.now()-B<Q&&T("scroll")},{capture:!0,passive:!0}),addEventListener("pointermove",e=>{e.isTrusted&&T("pointer")},{capture:!0,passive:!0}),addEventListener("click",e=>{e.isTrusted&&T("click")},{capture:!0,passive:!0})}function te(e,t,n){const u=[...t.values()].filter(o=>o.targets.some(s=>s.startsWith(e+".")));return{wrap(o,s){const f=`${e}.${o}`,a=u.filter(i=>i.targets.includes(f));return a.length===0?(...i)=>{try{return s(...i)}catch(p){return Promise.reject(p)}}:(...i)=>{let p=i;for(const c of a){const l=c.module.parameters;if(l)try{p=l(p)}catch{return Promise.reject({code:"transform_error",id:c.id,scope:e,message:"parameters transform failed"})}}let h;try{h=s(...p)}catch(c){h=Promise.reject(c)}return h.then(c=>{for(let l=a.length-1;l>=0;l--){const m=a[l],d=m.module.returns;if(d)try{c=d(c)}catch{return n({id:m.id,scope:e,leg:"returns"}),c}}return c},c=>{for(let l=a.length-1;l>=0;l--){const m=a[l],d=m.module.throws;if(d)try{c=d(c)}catch{return n({id:m.id,scope:e,leg:"throws"}),Promise.reject(c)}}return Promise.reject(c)})}}}}function ne(e,t,n,u=()=>{}){const o=new Set(e.changes??[]),s=new Map;for(const f of o){const a=t[f];a&&s.set(f,a)}return{contract:e.contract,changes:o,flags:new Set(e.flags??[]),capabilities:e.capabilities??{},capBudgets:e.capBudgets??{},transforms:s,shellOrigin:n.shellOrigin,mount:n.mount,pipe:f=>te(f,s,u)}}(function(){const e=Object.defineProperty,t=globalThis,n=["RTCPeerConnection","webkitRTCPeerConnection","RTCDataChannel","RTCIceCandidate","RTCSessionDescription","RTCRtpSender","RTCRtpReceiver"];let u=0;for(let o=0;o<n.length;o++){const s=n[o];try{e(t,s,{value:void 0,writable:!1,configurable:!1})}catch{try{delete t[s]}catch{}try{e(t,s,{value:void 0,writable:!1,configurable:!0})}catch{}}typeof t[s]=="function"&&u++}if(u&&window!==top)try{parent.postMessage({__frame_rtc_lockdown_failed:u},"*")}catch{}})();const re=1e4,oe=Object.freeze([...window.__FRAME_PREAMBLE?.origins??["https://claude.ai","https://preview.claude.ai"]]);function se(e){for(const t of oe)if(t.endsWith(":*"))try{const n=new URL(e);if(`${n.protocol}//${n.hostname}:*`===t)return!0}catch{}else if(e===t)return!0;return!1}const R=Object.freeze({...window.__FRAME_PREAMBLE?.capabilities??{}}),A=window.__FRAME_PREAMBLE?.transforms,k=window.__FRAME_PREAMBLE?.comments,C=/^[\w.-]+\.js$/,ie=/^[a-z][a-z0-9_-]{0,63}$/;let F=null,v=null;function N(e,t,n){try{Object.defineProperty(e,t,{value:n,writable:!1,configurable:!1,enumerable:!0})}catch{try{Object.defineProperty(e,t,{value:n,writable:!1,configurable:!0,enumerable:!0})}catch{}}}let I=!1;function H(e){const t=document.documentElement;e==="light"||e==="dark"?(t.dataset.theme=e,t.style.colorScheme=e,I=!0):I&&(delete t.dataset.theme,t.style.colorScheme="",I=!1)}const E={mcp:{watchTool:{handlerArg:3}}},P=new Map;function ae(e,t){const n=P.get(e);if(!n)return;Object.assign(n.impl,t),n.impl.__settled=()=>Promise.reject({code:"capability_removed",message:`${e}: method not in this runtime`});const u=n.queue;n.queue=[];for(const o of u){const s=t[o.method];if(s)if(E[e]?.[o.method])try{o.resolve(s(...o.args))}catch{O(o,E[e][o.method].handlerArg,{code:"transform_error",message:`${e}.${o.method} rejected its arguments`})}else s(...o.args).then(o.resolve,o.reject);else{const f={code:"capability_removed",message:`${e}.${o.method} is not in this runtime`},a=E[e]?.[o.method];if(a){O(o,a.handlerArg,f);continue}o.reject(f)}}}function $(e,t){const n=P.get(e);if(!n)return;n.impl.__settled=()=>Promise.reject(t);const u=n.queue;n.queue=[];for(const o of u){const s=E[e]?.[o.method];if(s){O(o,s.handlerArg,t);continue}o.reject(t)}}function O(e,t,n){if(e.syncState?.dead)return;const u=e.args[t];typeof u=="function"&&queueMicrotask(()=>{if(!e.syncState?.dead)try{u({type:"error",error:n})}catch(o){Y(o)}})}const q=Object.getOwnPropertyDescriptor(window,"claude");if(window!==top&&!(q&&q.writable===!1)){Z(),ee();const e=q?.value??{};N(window,"claude",e);const t=i=>{const p={impl:Object.create(null),queue:[]};P.set(i,p);const h=new Proxy(p.impl,{get:(c,l)=>{if(typeof l!="string"||l==="then"||l==="toJSON"||l==="valueOf")return;if(l==="toString")return Object.prototype.toString;const m=E[i]?.[l];return m?(...d)=>{if(typeof d[m.handlerArg]!="function")throw new TypeError(`${i}.${l} requires a handler function`);const g=c[l];if(g)return g(...d);if(c.__settled){const _={dead:!1},S={args:[...d],syncState:_};return c.__settled().catch(j=>O(S,m.handlerArg,j)),()=>{_.dead=!0}}let y=null;const w={dead:!1};return p.queue.push({method:l,args:d,resolve:_=>{y=typeof _=="function"?_:null,w.dead&&y?.()},reject:()=>{},syncState:w}),()=>{w.dead=!0,y?.()}}:(...d)=>{const g=c[l]??c.__settled;return g?g(...d):new Promise((y,w)=>{p.queue.push({method:l,args:d,resolve:y,reject:w})})}},set:()=>!1});N(e,i,h)};for(const i of Object.keys(R)){if(e[i]!==void 0){N(e,i,e[i]);continue}t(i)}let n=null,u=null,o=0;const s=i=>{i.source!==parent||!se(i.origin)||G(i.data)&&(n=i.data.__frame_init,v=i.origin,removeEventListener("message",s),clearTimeout(o),u?.())};addEventListener("message",s),parent.postMessage({__frame_connect:!0},"*");const f=new Promise(i=>{u=i,o=setTimeout(()=>{removeEventListener("message",s),i()},re)}),a=document.readyState==="loading"?new Promise(i=>document.addEventListener("DOMContentLoaded",()=>i(),{once:!0})):Promise.resolve();f.then(async()=>{if(!n||!v){for(const r of P.keys())$(r,{code:"not_granted",message:"frame initialization did not arrive - capability unavailable"});return}H(n.theme);const i=v;let p=!1;addEventListener("message",r=>{if(r.source!==parent||r.origin!==i)return;V(r.data)&&H(r.data.__frame_theme.theme);const b=r.data?.__fc_mode;b&&typeof b=="object"&&!p&&k&&C.test(k)&&(p=!0,h(k).then(L=>L.install?.(i,b.on===!0)).catch(()=>{}))});const h=r=>x(()=>import("/_runtime/"+r),void 0),c=Object.keys(n.capabilities??{});for(const r of c)Object.hasOwn(R,r)||ie.test(r)&&e[r]===void 0&&(t(r),$(r,{code:"capability_disabled",message:"capability not in this runtime generation"}));const l=c.filter(r=>Object.hasOwn(R,r)).map(r=>[r,R[r]]).filter(r=>typeof r[1]=="string"&&C.test(r[1])),[m,...d]=await Promise.allSettled([A&&C.test(A)?h(A):Promise.resolve({}),...l.map(([,r])=>h(r))]),g=v;F=ne(n,m.status==="fulfilled"&&m.value?.TRANSFORMS||{},{shellOrigin:g,mount:ae},r=>parent.postMessage({__frame_cap_telemetry:r},g));const y=r=>parent.postMessage({__frame_cap_telemetry:{kind:"cap-load-error",cap:r}},g),w=F;d.forEach((r,b)=>{const L=l[b][0];if(r.status!=="fulfilled"){y(L);return}try{r.value?.install?.(w)}catch{y(L)}});for(const[r,b]of P)b.queue.length===0&&Object.keys(b.impl).length>0||$(r,{code:c.includes(r)?"capability_disabled":"not_granted",message:"capability not available in this session"});await a,parent.postMessage({__frame_ready:!0},v);let _=-1,S=0;const j=()=>{S=0;const r=Math.max(document.documentElement.scrollHeight,document.body?document.body.scrollHeight:0);r!==_&&(_=r,parent.postMessage({__frame_size:!0,h:r},g))},M=()=>{S||(S=setTimeout(j,200))},W=new ResizeObserver(M);W.observe(document.documentElement),document.body&&W.observe(document.body),document.addEventListener("load",M,!0),document.fonts?.ready.then(M,()=>{}),addEventListener("beforeprint",()=>{_=-1,j()}),M(),addEventListener("message",r=>{r.source!==parent||r.origin!==g||J(r.data)&&(_=-1,M())})})}})();</script><!-- /frame-runtime --><meta name="viewport" content="width=device-width,initial-scale=1"><style>:root{color-scheme:light}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#faf9f5;color:#141413}img{max-width:100%}</style></head><body>
+<title>java-apm-sample システム構成図</title>
+<style>
+  :root{
+    --ink:#1B1F27;
+    --ink-soft:#565E71;
+    --surface:#F5F6FA;
+    --card:#FFFFFF;
+    --line:#DBDEE8;
+
+    --purple:#8C4FFF;   --purple-soft:#F1EBFF;
+    --orange:#ED7100;   --orange-soft:#FFF1E1;
+    --blue:#3B48CC;     --blue-soft:#EAEBFB;
+    --red:#DD344C;      --red-soft:#FDEBEE;
+    --pink:#E7157B;     --pink-soft:#FDEAF3;
+    --green:#2E8B57;    --green-soft:#E9F7EF;
+    --slate:#4A5164;
+
+    --font-head:"Segoe UI Semibold","Segoe UI",ui-sans-serif,"Helvetica Neue",Arial,sans-serif;
+    --font-body:"Segoe UI",ui-sans-serif,"Helvetica Neue",Arial,sans-serif;
+    --font-mono:ui-monospace,"Cascadia Code","SF Mono","Roboto Mono",Consolas,monospace;
+  }
+
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--surface);color:var(--ink);font-family:var(--font-body);}
+
+  .page{max-width:1600px;margin:0 auto;padding:40px 32px 64px;}
+
+  header.top{display:flex;justify-content:space-between;align-items:flex-end;gap:24px;flex-wrap:wrap;
+    border-bottom:2px solid var(--ink);padding-bottom:18px;margin-bottom:22px;}
+  header.top h1{font-family:var(--font-head);font-size:28px;margin:0 0 6px;letter-spacing:.2px;text-wrap:balance;}
+  header.top p{margin:0;color:var(--ink-soft);font-size:14px;line-height:1.6;max-width:640px;}
+  header.top .meta{font-family:var(--font-mono);font-size:12px;color:var(--ink-soft);text-align:right;line-height:1.7;}
+  header.top .meta b{color:var(--ink);font-weight:600;}
+
+  /* ---------- legend ---------- */
+  .legend{display:flex;flex-wrap:wrap;gap:10px 22px;align-items:center;
+    background:var(--card);border:1px solid var(--line);border-radius:10px;
+    padding:12px 18px;margin-bottom:22px;font-size:12.5px;color:var(--ink-soft);}
+  .legend .grp{display:flex;gap:14px;flex-wrap:wrap;align-items:center;}
+  .legend .div{width:1px;height:16px;background:var(--line);}
+  .swatch{display:inline-flex;align-items:center;gap:6px;}
+  .swatch i.dot{width:12px;height:12px;border-radius:3px;display:inline-block;}
+  .swatch i.line{width:22px;height:0;border-top-width:2.5px;border-top-style:solid;display:inline-block;}
+  .swatch i.line.dashed{border-top-style:dashed;}
+
+  /* ---------- diagram canvas ---------- */
+  .diagram-scroll{overflow-x:auto;background:var(--card);border:1px solid var(--line);border-radius:12px;
+    padding:18px;box-shadow:0 1px 2px rgba(20,20,40,.04);}
+  .canvas{position:relative;width:1500px;height:1120px;}
+
+  .node{position:absolute;z-index:2;border-radius:10px;padding:8px 12px;font-size:12.5px;line-height:1.35;}
+  .node .lbl{font-family:var(--font-head);font-weight:600;font-size:13px;color:var(--ink);}
+  .node .sub{font-family:var(--font-mono);font-size:10.8px;color:var(--ink-soft);margin-top:2px;}
+  .node .tag{display:inline-block;margin-top:5px;font-family:var(--font-mono);font-size:10px;
+    color:var(--red);background:var(--red-soft);border-radius:4px;padding:1px 6px;}
+
+  .group{position:absolute;z-index:1;border-radius:14px;border:1.5px dashed var(--line);}
+  .glabel{position:absolute;top:-11px;left:14px;background:var(--card);padding:0 8px;white-space:nowrap;
+    font-family:var(--font-head);font-weight:600;font-size:12px;color:var(--ink-soft);letter-spacing:.3px;}
+
+  .vpc-box{position:absolute;z-index:0;left:40px;top:210px;width:1420px;height:760px;
+    border:2px solid var(--purple);border-radius:18px;background:linear-gradient(180deg,var(--purple-soft),#fff 40%);}
+  .vpc-box > .glabel{top:-14px;left:22px;background:var(--purple);color:#fff;
+    font-family:var(--font-mono);font-weight:600;font-size:12.5px;padding:3px 12px;border-radius:8px;}
+
+  .subnet-public{background:var(--orange-soft);border-color:#E7B98A;z-index:1;}
+  .subnet-private{background:var(--blue-soft);border-color:#AEB4EC;z-index:1;}
+
+  .straddle{z-index:3;box-shadow:0 4px 10px rgba(20,20,50,.08);border-width:1.5px;border-style:solid;}
+
+  .badge-row{display:flex;align-items:center;gap:8px;}
+  .badge{flex:0 0 auto;width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;}
+  .badge svg{width:17px;height:17px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;}
+  .cat-compute{background:var(--orange);color:#fff;}
+  .cat-network{background:var(--purple);color:#fff;}
+  .cat-db{background:var(--blue);color:#fff;}
+  .cat-security{background:var(--red);color:#fff;}
+  .cat-observe{background:var(--pink);color:#fff;}
+  .cat-general{background:var(--slate);color:#fff;}
+  .cat-storage{background:var(--green);color:#fff;}
+
+  .card-fill{background:var(--card);border:1.5px solid var(--line);}
+
+  svg.connectors{position:absolute;inset:0;width:1500px;height:1120px;pointer-events:none;}
+  .conn-label{font-family:var(--font-mono);font-size:10.5px;fill:var(--ink-soft);}
+  .conn-label rect{fill:var(--card);}
+
+  /* ---------- notes ---------- */
+  .notes{margin-top:28px;display:grid;grid-template-columns:repeat(2,1fr);gap:16px;}
+  @media(max-width:980px){.notes{grid-template-columns:1fr;}}
+  .notes .note{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--purple);
+    border-radius:8px;padding:14px 16px;}
+  .notes .note h3{margin:0 0 6px;font-family:var(--font-head);font-size:13.5px;}
+  .notes .note p{margin:0;font-size:12.8px;line-height:1.65;color:var(--ink-soft);}
+  .notes .note code{font-family:var(--font-mono);background:var(--surface);padding:1px 5px;border-radius:4px;font-size:11.5px;color:var(--ink);}
+  .notes .note.warn{border-left-color:var(--red);}
+  .notes .note.warn h3{color:var(--red);}
+
+  footer.foot{margin-top:26px;font-size:11.5px;color:var(--ink-soft);font-family:var(--font-mono);
+    border-top:1px solid var(--line);padding-top:12px;}
+</style>
+
+<div class="page">
+
+  <header class="top">
+    <div>
+      <h1>java-apm-sample システム構成図</h1>
+      <p>CloudFormation テンプレート (<code style="font-family:var(--font-mono)">cloudformation/01〜05</code>) から起こした現時点のシステム構成。ProjectName のデフォルト値 <code style="font-family:var(--font-mono)">java-apm-sample</code> を前提に表記。</p>
+    </div>
+    <div class="meta">
+      Region: <b>ap-northeast-1</b> (Tokyo)<br>
+      VPC CIDR: <b>10.20.0.0/16</b><br>
+      Stacks: 01-network / 02-ecr / 03-dynamodb / 04-ecs-alb / 05-rds<br>
+      生成日: <b>2026-07-17</b>
+    </div>
+  </header>
+
+  <div class="legend">
+    <div class="grp">
+      <span class="swatch"><i class="dot" style="background:var(--orange)"></i>Compute</span>
+      <span class="swatch"><i class="dot" style="background:var(--purple)"></i>Networking</span>
+      <span class="swatch"><i class="dot" style="background:var(--blue)"></i>Database</span>
+      <span class="swatch"><i class="dot" style="background:var(--red)"></i>Security</span>
+      <span class="swatch"><i class="dot" style="background:var(--pink)"></i>Observability</span>
+      <span class="swatch"><i class="dot" style="background:var(--green)"></i>Storage/Registry</span>
+    </div>
+    <div class="div"></div>
+    <div class="grp">
+      <span class="swatch"><i class="line" style="border-color:var(--slate)"></i>アプリ通信経路</span>
+      <span class="swatch"><i class="line" style="border-color:var(--blue)"></i>DB 接続</span>
+      <span class="swatch"><i class="line dashed" style="border-color:var(--green)"></i>Gateway VPC Endpoint（NAT 課金回避・無料）</span>
+      <span class="swatch"><i class="line dashed" style="border-color:var(--orange)"></i>NAT Gateway 経由（課金対象）</span>
+    </div>
+  </div>
+
+  <div class="diagram-scroll">
+    <div class="canvas">
+
+      <!-- ================= Icon defs (reused via currentColor) ================= -->
+
+      <!-- Actors -->
+      <div class="node card-fill" style="left:40px;top:30px;width:220px;height:64px;">
+        <div class="badge-row">
+          <div class="badge cat-general">
+            <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="14" rx="2"></rect><path d="M3 8h18"></path><circle cx="6" cy="6" r=".6" fill="currentColor"></circle></svg>
+          </div>
+          <div><div class="lbl">ユーザー / クライアント</div><div class="sub">HTTP :80</div></div>
+        </div>
+      </div>
+
+      <div class="node card-fill" style="left:1240px;top:30px;width:220px;height:64px;">
+        <div class="badge-row">
+          <div class="badge cat-general">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"></circle><path d="M3.5 12h17M12 3.5c3 3 3 14 0 17M12 3.5c-3 3-3 14 0 17"></path></svg>
+          </div>
+          <div><div class="lbl">ipify.org</div><div class="sub">外部 API (/configuration)</div></div>
+        </div>
+      </div>
+
+      <!-- IGW -->
+      <div class="node card-fill" style="left:630px;top:124px;width:240px;height:56px;">
+        <div class="badge-row">
+          <div class="badge cat-network">
+            <svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3"></rect><path d="M4 12h16M12 4v16"></path></svg>
+          </div>
+          <div><div class="lbl">Internet Gateway</div></div>
+        </div>
+      </div>
+
+      <!-- ================= VPC (background rect only) ================= -->
+      <div class="vpc-box"><span class="glabel">VPC &nbsp;10.20.0.0/16</span></div>
+
+      <!-- Public subnets group -->
+      <div class="group" style="left:80px;top:256px;width:1340px;height:180px;">
+        <span class="glabel">Public Subnets</span>
+      </div>
+      <div class="node subnet-public" style="left:100px;top:296px;width:640px;height:120px;">
+        <span class="glabel" style="font-family:var(--font-mono);">1a ・ 10.20.0.0/24</span>
+      </div>
+      <div class="node subnet-public" style="left:760px;top:296px;width:640px;height:120px;">
+        <span class="glabel" style="font-family:var(--font-mono);">1c ・ 10.20.1.0/24</span>
+      </div>
+
+      <!-- NAT (inside 1a only) -->
+      <div class="node card-fill straddle" style="left:140px;top:340px;width:160px;height:64px;">
+        <div class="badge-row">
+          <div class="badge cat-network" style="width:26px;height:26px;">
+            <svg viewBox="0 0 24 24"><path d="M4 12h11M11 7l4 5-4 5"></path><path d="M17 5v14" stroke-dasharray="2 2"></path></svg>
+          </div>
+          <div><div class="lbl" style="font-size:12px;">NAT Gateway</div><div class="sub">1a のみ（コスト削減）</div></div>
+        </div>
+      </div>
+
+      <!-- ALB straddling both public subnets -->
+      <div class="node card-fill straddle" style="left:560px;top:266px;width:380px;height:70px;border-color:var(--purple);">
+        <div class="badge-row">
+          <div class="badge cat-network">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="6" r="2.2"></circle><circle cx="5" cy="18" r="2.2"></circle><circle cx="19" cy="18" r="2.2"></circle><path d="M12 8v3M12 11L6 16M12 11l6 5"></path></svg>
+          </div>
+          <div><div class="lbl">Application Load Balancer</div><div class="sub">internet-facing ・ :80 → :8080</div>
+            <span class="tag">ALB-SG: 80 ← 0.0.0.0/0</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Private subnets group -->
+      <div class="group" style="left:80px;top:456px;width:1340px;height:350px;">
+        <span class="glabel">Private Subnets</span>
+      </div>
+      <div class="node subnet-private" style="left:100px;top:496px;width:640px;height:290px;">
+        <span class="glabel" style="font-family:var(--font-mono);">1a ・ 10.20.10.0/24</span>
+      </div>
+      <div class="node subnet-private" style="left:760px;top:496px;width:640px;height:290px;">
+        <span class="glabel" style="font-family:var(--font-mono);">1c ・ 10.20.11.0/24</span>
+      </div>
+
+      <!-- ECS Task straddling private subnets -->
+      <div class="node card-fill straddle" style="left:560px;top:520px;width:380px;height:160px;border-color:var(--orange);padding-top:10px;">
+        <div class="lbl" style="font-size:12.5px;">ECS Fargate タスク ×1</div>
+        <div class="sub">DesiredCount=1 ・ 1a/1c いずれかへ配置 ・ Cpu 512 / Mem 1024</div>
+        <span class="tag">ECS-SG: 8080 ← ALB-SG のみ</span>
+
+        <div class="node card-fill" style="left:20px;top:66px;width:160px;height:80px;padding:6px 8px;">
+          <div class="badge-row">
+            <div class="badge cat-compute" style="width:24px;height:24px;">
+              <svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"></rect><path d="M4 10h16M10 4v16"></path></svg>
+            </div>
+            <div><div class="lbl" style="font-size:11px;">app container</div><div class="sub" style="font-size:9.5px;">:8080 Spring Boot</div></div>
+          </div>
+        </div>
+        <div class="node card-fill" style="left:200px;top:66px;width:160px;height:80px;padding:6px 8px;">
+          <div class="badge-row">
+            <div class="badge cat-observe" style="width:24px;height:24px;">
+              <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"></circle><path d="M8 12l2.5 2.5L16 9"></path></svg>
+            </div>
+            <div><div class="lbl" style="font-size:11px;">otel-collector</div><div class="sub" style="font-size:9.5px;">CloudWatch Agent sidecar</div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- RDS straddling private subnets -->
+      <div class="node card-fill straddle" style="left:560px;top:706px;width:380px;height:66px;border-color:var(--blue);">
+        <div class="badge-row">
+          <div class="badge cat-db">
+            <svg viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="7" ry="2.6"></ellipse><path d="M5 6v12c0 1.4 3.1 2.6 7 2.6s7-1.2 7-2.6V6"></path><path d="M5 12c0 1.4 3.1 2.6 7 2.6s7-1.2 7-2.6"></path></svg>
+          </div>
+          <div><div class="lbl" style="font-size:12px;">RDS MySQL 8.4</div><div class="sub">db.t3.micro ・ Single-AZ ・ :3306</div>
+            <span class="tag">RDS-SG: 3306 ← VPC CIDR</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Gateway VPC Endpoints -->
+      <div class="group" style="left:80px;top:826px;width:1340px;height:90px;border-color:#B9E3C6;">
+        <span class="glabel" style="color:var(--green);">Private Route Table → Gateway VPC Endpoints（NAT 課金回避）</span>
+      </div>
+      <div class="node card-fill" style="left:110px;top:852px;width:260px;height:50px;border-color:var(--green);">
+        <div class="badge-row">
+          <div class="badge cat-storage" style="width:24px;height:24px;">
+            <svg viewBox="0 0 24 24"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"></path><path d="M4 7.5L12 12l8-4.5M12 12v9"></path></svg>
+          </div>
+          <div><div class="lbl" style="font-size:11.5px;">S3 Gateway Endpoint</div><div class="sub" style="font-size:9.5px;">ECR イメージレイヤー用</div></div>
+        </div>
+      </div>
+      <div class="node card-fill" style="left:1130px;top:852px;width:260px;height:50px;border-color:var(--green);">
+        <div class="badge-row">
+          <div class="badge cat-storage" style="width:24px;height:24px;">
+            <svg viewBox="0 0 24 24"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"></path><path d="M4 7.5L12 12l8-4.5M12 12v9"></path></svg>
+          </div>
+          <div><div class="lbl" style="font-size:11.5px;">DynamoDB Gateway Endpoint</div></div>
+        </div>
+      </div>
+
+      <!-- ================= Regional / managed services (outside VPC) ================= -->
+      <div class="node card-fill" style="left:80px;top:966px;width:220px;height:96px;border-color:var(--green);">
+        <div class="badge-row">
+          <div class="badge cat-storage">
+            <svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="6" rx="1.5"></rect><rect x="4" y="14" width="16" height="6" rx="1.5"></rect></svg>
+          </div>
+          <div><div class="lbl" style="font-size:12px;">ECR Repository</div><div class="sub">java-apm-sample<br>ScanOnPush ・ 直近10世代保持</div></div>
+        </div>
+      </div>
+
+      <div class="node card-fill" style="left:340px;top:966px;width:220px;height:96px;border-color:var(--red);">
+        <div class="badge-row">
+          <div class="badge cat-security">
+            <svg viewBox="0 0 24 24"><rect x="6" y="11" width="12" height="9" rx="2"></rect><path d="M8 11V8a4 4 0 018 0v3"></path></svg>
+          </div>
+          <div><div class="lbl" style="font-size:12px;">Secrets Manager</div><div class="sub">RDS マスターパスワード<br>ManageMasterUserPassword</div></div>
+        </div>
+      </div>
+
+      <div class="node card-fill" style="left:600px;top:966px;width:220px;height:96px;border-color:var(--pink);">
+        <div class="badge-row">
+          <div class="badge cat-observe">
+            <svg viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2"></rect><path d="M8 8h8M8 12h8M8 16h5"></path></svg>
+          </div>
+          <div><div class="lbl" style="font-size:12px;">CloudWatch Logs</div><div class="sub">/ecs/java-apm-sample<br>保持 30日</div></div>
+        </div>
+      </div>
+
+      <div class="node card-fill" style="left:860px;top:966px;width:260px;height:96px;border-color:var(--pink);">
+        <div class="badge-row">
+          <div class="badge cat-observe">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"></circle><path d="M5 12h3l2 5 4-10 2 5h3"></path></svg>
+          </div>
+          <div><div class="lbl" style="font-size:12px;">X-Ray / Application Signals</div><div class="sub">/health 除外(rate 0)<br>それ以外 5% サンプリング</div></div>
+        </div>
+      </div>
+
+      <div class="node card-fill" style="left:1160px;top:966px;width:260px;height:96px;border-color:var(--blue);">
+        <div class="badge-row">
+          <div class="badge cat-db">
+            <svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"></rect><path d="M4 9h16M4 14h16M9 4v16"></path></svg>
+          </div>
+          <div><div class="lbl" style="font-size:12px;">DynamoDB テーブル</div><div class="sub">users ・ PK: email<br>PAY_PER_REQUEST</div></div>
+        </div>
+      </div>
+
+      <!-- ================= Connectors ================= -->
+      <svg class="connectors" viewBox="0 0 1500 1120">
+        <defs>
+          <marker id="ah-slate" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#4A5164"></path></marker>
+          <marker id="ah-blue" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#3B48CC"></path></marker>
+          <marker id="ah-green" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#2E8B57"></path></marker>
+          <marker id="ah-orange" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#ED7100"></path></marker>
+        </defs>
+
+        <!-- halo underlays for legibility over filled boxes -->
+        <g fill="none" stroke="#fff" stroke-width="6" opacity=".85">
+          <path d="M260,62 Q450,60 630,152"></path>
+          <path d="M750,180 L750,266"></path>
+          <path d="M750,336 L750,520"></path>
+          <path d="M750,680 L750,706"></path>
+          <path d="M850,680 Q1150,700 1260,852"></path>
+          <path d="M1260,902 Q1275,930 1290,966"></path>
+          <path d="M600,680 Q380,760 240,852"></path>
+          <path d="M240,902 Q210,930 190,966"></path>
+          <path d="M220,404 Q400,300 630,168"></path>
+          <path d="M300,372 C 520,520 380,800 450,966"></path>
+          <path d="M300,372 C 620,500 660,800 710,966"></path>
+          <path d="M300,372 C 800,450 950,800 990,966"></path>
+          <path d="M300,372 C 200,600 150,800 150,966"></path>
+          <path d="M300,356 Q900,10 1240,62"></path>
+        </g>
+
+        <!-- solid slate: primary request path -->
+        <g fill="none" stroke="#4A5164" stroke-width="2.2" marker-end="url(#ah-slate)">
+          <path d="M260,62 Q450,60 630,152"></path>
+          <path d="M750,180 L750,266"></path>
+          <path d="M750,336 L750,520"></path>
+        </g>
+
+        <!-- solid blue: DB connection -->
+        <g fill="none" stroke="#3B48CC" stroke-width="2.2" marker-end="url(#ah-blue)">
+          <path d="M750,680 L750,706"></path>
+        </g>
+
+        <!-- dashed green: gateway endpoint (free) -->
+        <g fill="none" stroke="#2E8B57" stroke-width="2" stroke-dasharray="6 5" marker-end="url(#ah-green)">
+          <path d="M850,680 Q1150,700 1260,852"></path>
+          <path d="M1260,902 Q1275,930 1290,966"></path>
+          <path d="M600,680 Q380,760 240,852"></path>
+          <path d="M240,902 Q210,930 190,966"></path>
+        </g>
+
+        <!-- dashed orange: via NAT Gateway (billed) -->
+        <g fill="none" stroke="#ED7100" stroke-width="2" stroke-dasharray="6 5" marker-end="url(#ah-orange)">
+          <path d="M220,404 Q400,300 630,168"></path>
+          <path d="M300,372 C 520,520 380,800 450,966"></path>
+          <path d="M300,372 C 620,500 660,800 710,966"></path>
+          <path d="M300,372 C 800,450 950,800 990,966"></path>
+          <path d="M300,372 C 200,600 150,800 150,966"></path>
+          <path d="M300,356 Q900,10 1240,62"></path>
+        </g>
+
+        <!-- inline labels -->
+        <g class="conn-label">
+          <g transform="translate(985,760)"><rect x="-2" y="-11" width="150" height="15" rx="3"></rect><text x="0" y="0">DynamoDB CRUD（無料）</text></g>
+          <g transform="translate(330,770)"><rect x="-2" y="-11" width="118" height="15" rx="3"></rect><text x="0" y="0">image pull（無料）</text></g>
+          <g transform="translate(370,260)"><rect x="-2" y="-11" width="150" height="15" rx="3"></rect><text x="0" y="0" fill="#ED7100">NAT 経由（課金対象）</text></g>
+        </g>
+      </svg>
+
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note">
+      <h3>コスト最適化の意図（テンプレートのコメントより）</h3>
+      <p>NAT Gateway は <code>1a</code> のみに配置しコストを抑制。DynamoDB と S3（ECR イメージレイヤー）は Gateway 型 VPC Endpoint 経由でアクセスし、NAT 課金を回避する設計になっている。逆に Secrets Manager／CloudWatch Logs／X-Ray／ECR API 呼び出し／外部 API（ipify.org）は Interface Endpoint が無いため NAT Gateway 経由で課金対象となる。</p>
+    </div>
+    <div class="note">
+      <h3>RDS は最小構成</h3>
+      <p><code>db.t3.micro</code> ・ Single-AZ ・ <code>BackupRetentionPeriod: 0</code> のテスト用最小構成。マスターパスワードは RDS 管理シークレット（<code>ManageMasterUserPassword</code>）で自動生成・管理され、アプリは起動時に Secrets Manager から取得する。</p>
+    </div>
+    <div class="note warn">
+      <h3>CLAUDE.md との差異について</h3>
+      <p>CLAUDE.md は「APM は後フェーズで追加、現フェーズでは未実装」としているが、実際の <code>04-ecs-alb.yaml</code> には ADOT Java Agent 相当の OTEL 環境変数、CloudWatch Agent サイドカー（<code>otel-collector</code>）、X-Ray サンプリングルール、TaskRole への <code>AWSXRayDaemonWriteAccess</code> / <code>CloudWatchAgentServerPolicy</code>、Cpu/Memory 512/1024 への引き上げが、すでにすべて実装済みだった。ドキュメントが実装に追随していない可能性がある。</p>
+    </div>
+    <div class="note">
+      <h3>ECS タスクは AZ 間で流動的に配置</h3>
+      <p><code>DesiredCount</code> のデフォルトは 1 で、Private Subnet 1a/1c いずれかに配置される（図では両 AZ にまたがる形で 1 つのタスクとして表現）。ALB のリスナールールは <code>/health</code>・<code>/configuration</code>、<code>/users*</code>、<code>/companies*</code> をすべて同一ターゲットグループへフォワードする。</p>
+    </div>
+  </div>
+
+  <footer class="foot">
+    Source: cloudformation/01-network.yaml, 02-ecr.yaml, 03-dynamodb.yaml, 04-ecs-alb.yaml, 05-rds.yaml — java-api-apm-sample-for-ecs-by-claudecode
+  </footer>
+
+</div>
+
+</body></html>
