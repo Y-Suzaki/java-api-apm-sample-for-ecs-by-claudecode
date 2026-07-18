@@ -1,7 +1,8 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >
-  ECS Fargate service + ALB stack.
+  ECS Fargate service + ALB + internal NLB stack.
   Imports VPC/subnet IDs from network stack and DynamoDB ARN from dynamodb stack.
+  Traffic path: Internet -> ALB (Public) -> NLB (Application, internal) -> ECS (Private).
 
 Parameters:
   ProjectName:
@@ -23,6 +24,20 @@ Parameters:
     Type: Number
     Default: 1
     Description: Number of ECS tasks
+  NlbPrivateIp1a:
+    Type: String
+    Default: 10.20.32.10
+    Description: >
+      Static private IP for the internal NLB node in Application Subnet 1a.
+      Must be within ApplicationSubnet1a CIDR (10.20.32.0/20). ALB's target
+      group registers this IP directly since ALB target groups have no
+      native "nlb" target type.
+  NlbPrivateIp1c:
+    Type: String
+    Default: 10.20.48.10
+    Description: >
+      Static private IP for the internal NLB node in Application Subnet 1c.
+      Must be within ApplicationSubnet1c CIDR (10.20.48.0/20).
 
 Resources:
 
@@ -40,18 +55,31 @@ Resources:
           ToPort: 80
           CidrIp: 0.0.0.0/0
 
+  NLBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub ${ProjectName}-nlb-sg
+      GroupDescription: Allow port 80 from ALB only (internal NLB, no internet access)
+      VpcId: !ImportValue
+        Fn::Sub: ${ProjectName}-vpc-id
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          SourceSecurityGroupId: !Ref ALBSecurityGroup
+
   ECSSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
       GroupName: !Sub ${ProjectName}-ecs-sg
-      GroupDescription: Allow port 8080 from ALB only
+      GroupDescription: Allow port 8080 from NLB only
       VpcId: !ImportValue
         Fn::Sub: ${ProjectName}-vpc-id
       SecurityGroupIngress:
         - IpProtocol: tcp
           FromPort: 8080
           ToPort: 8080
-          SourceSecurityGroupId: !Ref ALBSecurityGroup
+          SourceSecurityGroupId: !Ref NLBSecurityGroup
 
   # ── IAM Roles ────────────────────────────────────────────────────────────
   # TaskExecutionRole: ECS エージェントが ECR からイメージを pull し、CloudWatch Logs に書き込むための権限
@@ -292,7 +320,7 @@ Resources:
               awslogs-region: !Ref AWS::Region
               awslogs-stream-prefix: cwagent
 
-  # ── ALB ──────────────────────────────────────────────────────────────────
+  # ── ALB（Public Subnet、internet-facing） ─────────────────────────────────
   ALB:
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
     Properties:
@@ -307,15 +335,24 @@ Resources:
       SecurityGroups:
         - !Ref ALBSecurityGroup
 
-  TargetGroup:
+  # ALB のターゲットグループ（IP タイプ）。ALB のターゲットグループには NLB を
+  # 直接指定する仕組み（"nlb" ターゲットタイプ）が存在しないため、NLB の各 AZ
+  # ノードに割り当てた固定プライベート IP（NlbPrivateIp1a/1c）を静的ターゲット
+  # として登録し、ALB → NLB への転送を実現する。
+  AlbToNlbTargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
-      Name: !Sub ${ProjectName}-tg
+      Name: !Sub ${ProjectName}-alb-nlb-tg
       Protocol: HTTP
-      Port: 8080
+      Port: 80
       VpcId: !ImportValue
         Fn::Sub: ${ProjectName}-vpc-id
       TargetType: ip
+      Targets:
+        - Id: !Ref NlbPrivateIp1a
+          Port: 80
+        - Id: !Ref NlbPrivateIp1c
+          Port: 80
       HealthCheckPath: /health
       HealthCheckProtocol: HTTP
       HealthCheckIntervalSeconds: 30
@@ -336,7 +373,7 @@ Resources:
             ContentType: application/json
             MessageBody: '{"error":"Not Found"}'
 
-  # /health, /configuration → TG へ転送
+  # /health, /configuration → NLB 経由で ECS へ転送
   ALBListenerRuleGeneral:
     Type: AWS::ElasticLoadBalancingV2::ListenerRule
     Properties:
@@ -349,9 +386,9 @@ Resources:
             - /configuration
       Actions:
         - Type: forward
-          TargetGroupArn: !Ref TargetGroup
+          TargetGroupArn: !Ref AlbToNlbTargetGroup
 
-  # /users, /users/* → TG へ転送
+  # /users, /users/* → NLB 経由で ECS へ転送
   ALBListenerRuleUsers:
     Type: AWS::ElasticLoadBalancingV2::ListenerRule
     Properties:
@@ -364,9 +401,9 @@ Resources:
             - /users/*
       Actions:
         - Type: forward
-          TargetGroupArn: !Ref TargetGroup
+          TargetGroupArn: !Ref AlbToNlbTargetGroup
 
-  # /companies, /companies/* → TG へ転送
+  # /companies, /companies/* → NLB 経由で ECS へ転送
   ALBListenerRuleCompanies:
     Type: AWS::ElasticLoadBalancingV2::ListenerRule
     Properties:
@@ -379,12 +416,58 @@ Resources:
             - /companies/*
       Actions:
         - Type: forward
-          TargetGroupArn: !Ref TargetGroup
+          TargetGroupArn: !Ref AlbToNlbTargetGroup
+
+  # ── NLB（Application Subnet、internal。インターネットからのアクセス不可） ──
+  NLB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub ${ProjectName}-nlb
+      Scheme: internal
+      Type: network
+      SubnetMappings:
+        - SubnetId: !ImportValue
+            Fn::Sub: ${ProjectName}-application-subnet-1a-id
+          PrivateIPv4Address: !Ref NlbPrivateIp1a
+        - SubnetId: !ImportValue
+            Fn::Sub: ${ProjectName}-application-subnet-1c-id
+          PrivateIPv4Address: !Ref NlbPrivateIp1c
+      SecurityGroups:
+        - !Ref NLBSecurityGroup
+
+  # NLB のターゲットグループ（ECS タスクを登録）。NLB はレイヤー4のため
+  # Protocol は TCP。ヘルスチェックのみ HTTP で /health を確認する。
+  # NLB のターゲットグループはヘルスチェックタイムアウトをカスタマイズできない
+  # （interval 30s の場合は固定 10s）ため HealthCheckTimeoutSeconds は指定しない。
+  NlbTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub ${ProjectName}-nlb-tg
+      Protocol: TCP
+      Port: 8080
+      VpcId: !ImportValue
+        Fn::Sub: ${ProjectName}-vpc-id
+      TargetType: ip
+      HealthCheckPath: /health
+      HealthCheckProtocol: HTTP
+      HealthCheckIntervalSeconds: 30
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+
+  NLBListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref NLB
+      Protocol: TCP
+      Port: 80
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref NlbTargetGroup
 
   # ── ECS Service ──────────────────────────────────────────────────────────
   ECSService:
     Type: AWS::ECS::Service
-    DependsOn: ALBListener
+    DependsOn: NLBListener
     Properties:
       ServiceName: !Sub ${ProjectName}-service
       Cluster: !Ref ECSCluster
@@ -411,13 +494,18 @@ Resources:
       LoadBalancers:
         - ContainerName: !Sub ${ProjectName}-container
           ContainerPort: 8080
-          TargetGroupArn: !Ref TargetGroup
+          TargetGroupArn: !Ref NlbTargetGroup
 
 Outputs:
   ALBDnsName:
     Value: !GetAtt ALB.DNSName
     Export:
       Name: !Sub ${ProjectName}-alb-dns
+
+  NLBArn:
+    Value: !Ref NLB
+    Export:
+      Name: !Sub ${ProjectName}-nlb-arn
 
   ECSClusterName:
     Value: !Ref ECSCluster

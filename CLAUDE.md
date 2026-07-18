@@ -286,25 +286,39 @@ Python 版と共通のネットワーク設計を踏襲する。
 ### CloudFormation スタック構成
 | ファイル           | スタック名                       | 作成リソース                                     |
 |----------------|-----------------------------|--------------------------------------------|
-| 01-network.yaml | `${ProjectName}-network`    | VPC、Public/Private サブネット（2AZ）、IGW、NAT GW（1AZ）、DynamoDB VPC Endpoint |
+| 01-network.yaml | `${ProjectName}-network`    | VPC、Public/Application/Private サブネット（2AZ、3層構成）、IGW、NAT GW（1AZ）、DynamoDB/S3 VPC Endpoint |
 | 02-ecr.yaml    | `${ProjectName}-ecr`        | ECR リポジトリ                                  |
 | 03-dynamodb.yaml | `${ProjectName}-dynamodb`   | DynamoDB テーブル（users、PK: email）              |
-| 04-ecs-alb.yaml | `${ProjectName}-ecs`        | ECS クラスター、タスク定義、Fargate サービス、ALB、TG         |
+| 04-ecs-alb.yaml | `${ProjectName}-ecs`        | ECS クラスター、タスク定義、Fargate サービス、ALB、内部 NLB、TG |
 
 ### ネットワーク設計（01-network.yaml）
 * リージョン: **ap-northeast-1**（東京）
 * VPC CIDR: `10.20.0.0/16`
-* Public サブネット: 2AZ（1a / 1c）
-* Private サブネット: 2AZ（1a / 1c）
-* NAT Gateway: コスト削減のため **単一 AZ（1a）のみ**
-* DynamoDB へは Gateway 型 VPC Endpoint 経由で接続（NAT 課金回避）
+* 3 層構成（Public / Application / Private）、各層 2AZ（1a / 1c）、サブネットマスクは **/20**
+  * Public: `10.20.0.0/20`（1a）、`10.20.16.0/20`（1c）— ALB を配置
+  * Application: `10.20.32.0/20`（1a）、`10.20.48.0/20`（1c）— 内部 NLB を配置
+  * Private: `10.20.64.0/20`（1a）、`10.20.80.0/20`（1c）— ECS Fargate タスク / Aurora MySQL を配置
+* NAT Gateway: コスト削減のため **単一 AZ（1a）のみ**。Application / Private の各ルートテーブルから同じ NAT Gateway を利用
+* DynamoDB / S3 へは Gateway 型 VPC Endpoint 経由で接続（NAT 課金回避）。Private・Application 両方のルートテーブルに関連付け済み
 
 ### ECS Fargate 設計（04-ecs-alb.yaml）
 * CPU/Memory: **256 / 512**（APM サイドカー不在のため最小構成）
 * コンテナポート: **8080**
 * ヘルスチェックパス: `/health`
 * サービス: PrivateSubnet に配置、PublicIP 無効
-* ALB: PublicSubnet に配置、HTTP:80 → コンテナ 8080 フォワード
+
+### 通信経路（ALB → NLB → ECS）
+* `Internet → ALB（Public） → NLB（Application、internal） → ECS（Private）` の 3 ホップ構成。
+* **ALB**: Public Subnet に配置、internet-facing。HTTP:80 で受信し、パスごとにターゲットグループへ転送する。
+* **NLB**: Application Subnet に配置、**Scheme: internal**（インターネットからのアクセス不可、IGW ルートなし）。
+  TCP:80 で受信し、ECS タスク（コンテナポート 8080）へ転送する。
+* **ALB → NLB の接続方法**: ALB のターゲットグループには NLB を直接指定する仕組み（"nlb" ターゲットタイプ）が
+  存在しない。そのため NLB の `SubnetMappings` に `PrivateIPv4Address` で固定プライベート IP
+  （`NlbPrivateIp1a` = `10.20.32.10`、`NlbPrivateIp1c` = `10.20.48.10`、いずれも Application Subnet の
+  CIDR 内）を割り当て、ALB 側のターゲットグループ（`AlbToNlbTargetGroup`、IP タイプ）にその固定 IP を
+  静的ターゲットとして登録することで疑似的に ALB → NLB の転送を実現する。
+* **セキュリティグループ**: ALB SG（0.0.0.0/0:80 許可）→ NLB SG（ALB SG からの :80 のみ許可）→
+  ECS SG（NLB SG からの :8080 のみ許可）の順に絞り込む。
 
 #### ECS タスクの環境変数
 | 変数名                  | 値                                |

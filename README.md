@@ -7,12 +7,17 @@ OpenTelemetry を活用し、Application Signals と X-Ray と連携する。
 ## 構成図（論理）
 
 ```
-[Internet] → ALB (public subnet) → ECS Fargate Task (private subnet) → DynamoDB (Gateway VPC Endpoint)
-                                                             ↘ NAT Gateway (single AZ) → Internet
+[Internet] → ALB (public subnet) → NLB (application subnet, internal) → ECS Fargate Task (private subnet) → DynamoDB (Gateway VPC Endpoint)
+                                                                                                  ↘ NAT Gateway (single AZ) → Internet
 ```
 
 - リージョン: `ap-northeast-1`（東京）
-- ネットワーク: 自前の VPC（Public/Private 2 AZ 構成）。コスト削減のため NAT Gateway は単一 AZ。
+- ネットワーク: 自前の VPC（Public/Application/Private の 3 層 × 2 AZ 構成、各サブネット /20）。
+  ALB=Public、NLB（internal、インターネットアクセス不可）=Application、ECS/Aurora MySQL=Private に配置。
+  コスト削減のため NAT Gateway は単一 AZ。
+- ALB → NLB は、NLB の各 AZ ノードに割り当てた固定プライベート IP（Application Subnet の CIDR 内）を
+  ALB 側ターゲットグループに静的登録する方式で接続（ALB のターゲットグループには NLB を直接指定する
+  仕組みがないための代替手段）。
 - DB（NoSQL）: DynamoDB（Partition Key = `email`）。VPC からは Gateway 型エンドポイント経由。
 - DB（リレーショナル）: ローカル開発は MySQL 8.0 in Docker。AWS 本番は Aurora MySQL（今後追加予定）。
 - 認証: なし（サンプル用途）。
