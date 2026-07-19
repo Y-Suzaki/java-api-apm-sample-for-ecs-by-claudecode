@@ -51,6 +51,35 @@ if [[ "${APP_NAME}" == "user-company-api" ]]; then
   PARAMS+=("MySqlUsername=${MYSQL_DB_USERNAME:-appuser}")
 fi
 
+# log-api: API Gateway REST API の Body は S3 上の openapi.yaml を Fn::Include で読み込むため、
+# CloudFormation デプロイより先に S3 へアップロードしておく必要がある。
+# spec のハッシュを Deployment の Description に渡し、spec だけ変更した場合でも
+# 新しい Deployment が作られる（= API Gateway に反映される）ようにする。
+if [[ "${APP_NAME}" == "log-api" ]]; then
+  OPENAPI_FILE="${APP_DIR}/openapi.yaml"
+  OPENAPI_BUCKET=$(aws cloudformation describe-stacks \
+    --stack-name "${SHARED_STACK}" \
+    --region "${AWS_DEFAULT_REGION}" \
+    --query 'Stacks[0].Outputs[?OutputKey==`OpenApiBucketName`].OutputValue' \
+    --output text)
+  NLB_DNS_NAME=$(aws cloudformation describe-stacks \
+    --stack-name "${SHARED_STACK}" \
+    --region "${AWS_DEFAULT_REGION}" \
+    --query 'Stacks[0].Outputs[?OutputKey==`NLBDnsName`].OutputValue' \
+    --output text)
+  OPENAPI_HASH=$(sha256sum "${OPENAPI_FILE}" 2>/dev/null | cut -d' ' -f1 || shasum -a 256 "${OPENAPI_FILE}" | cut -d' ' -f1)
+
+  log "Uploading openapi.yaml to s3://${OPENAPI_BUCKET}/openapi/log-api.yaml"
+  aws s3 cp "${OPENAPI_FILE}" "s3://${OPENAPI_BUCKET}/openapi/log-api.yaml" \
+    --region "${AWS_DEFAULT_REGION}"
+
+  PARAMS+=(
+    "OpenApiBucketName=${OPENAPI_BUCKET}"
+    "OpenApiSpecHash=${OPENAPI_HASH}"
+    "NlbDnsName=${NLB_DNS_NAME}"
+  )
+fi
+
 deploy_stack "${ECS_STACK}" "${ECS_TEMPLATE}" "${PARAMS[@]}"
 
 # ECS クラスター名は共有スタック（06）の Output から取得する
@@ -82,18 +111,25 @@ else
   log "CloudFormation がデプロイを完了済み。force-new-deployment はスキップします。"
 fi
 
-# ALB DNS 名は共有スタック（06）の Output から取得する
-ALB_DNS=$(aws cloudformation describe-stacks \
-  --stack-name "${SHARED_STACK}" \
-  --region "${AWS_DEFAULT_REGION}" \
-  --query 'Stacks[0].Outputs[?OutputKey==`ALBDnsName`].OutputValue' \
-  --output text)
-
 log_success "=== ECS service deployed: ${APP_NAME} ==="
-log "ALB endpoint : http://${ALB_DNS}"
+
 if [[ "${APP_NAME}" == "log-api" ]]; then
-  log "Try it       : curl -X POST http://${ALB_DNS}/logs -d 'hello'"
+  # log-api は ALB を経由しない。API Gateway の invoke URL はこのアプリのスタック（08）の Output から取得する。
+  API_INVOKE_URL=$(aws cloudformation describe-stacks \
+    --stack-name "${ECS_STACK}" \
+    --region "${AWS_DEFAULT_REGION}" \
+    --query 'Stacks[0].Outputs[?OutputKey==`ApiInvokeUrl`].OutputValue' \
+    --output text)
+  log "API endpoint : ${API_INVOKE_URL}"
+  log "Try it       : curl -X POST ${API_INVOKE_URL}/logs -H 'Content-Type: application/json' -d '{\"message\":\"hello\"}'"
 else
+  # ALB DNS 名は共有スタック（06）の Output から取得する
+  ALB_DNS=$(aws cloudformation describe-stacks \
+    --stack-name "${SHARED_STACK}" \
+    --region "${AWS_DEFAULT_REGION}" \
+    --query 'Stacks[0].Outputs[?OutputKey==`ALBDnsName`].OutputValue' \
+    --output text)
+  log "ALB endpoint : http://${ALB_DNS}"
   log "Health check : curl http://${ALB_DNS}/health"
 fi
 log ""

@@ -1,12 +1,19 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >
-  ECS Fargate Service stack for log-api (a minimal sample API that accepts arbitrary
+  ECS Fargate Service stack for log-api (a minimal sample API that accepts JSON
   logs and prints them to stdout). Imports Exports from 06-shared-cluster-lb.yaml
-  (ECS Cluster / ALB / NLB / SG). APM (ADOT/X-Ray) is intentionally not included,
-  since this app exists as a minimal sample of application separation.
+  (ECS Cluster / NLB / SG / OpenAPI staging bucket). APM (ADOT/X-Ray) is
+  intentionally not included, since this app exists as a minimal sample of
+  application separation.
   The NLB itself is shared, but this stack adds a Listener dedicated to this app on
   port 8081 (user-company-api already uses port 80, so each app gets its own NLB
   listener port to keep traffic separated).
+  Unlike user-company-api, log-api is NOT routed through the shared ALB. Instead,
+  this stack owns an API Gateway REST API that reaches the NLB directly via a
+  VPC Link (Internet -> API Gateway -> VPC Link -> NLB -> ECS). The REST API's
+  Body is imported from apps/log-api/openapi.yaml, staged in S3 and pulled in via
+  Fn::Transform (AWS::Include), so editing that file and redeploying updates the
+  API Gateway definition automatically.
 
 Parameters:
   ProjectName:
@@ -20,6 +27,26 @@ Parameters:
     Type: Number
     Default: 1
     Description: Number of ECS tasks
+  OpenApiBucketName:
+    Type: String
+    Description: >
+      Name of the S3 bucket (06-shared-cluster-lb.yaml OpenApiBucketName Output) that
+      the deploy script uploads apps/log-api/openapi.yaml into before this stack deploys.
+  OpenApiObjectKey:
+    Type: String
+    Default: openapi/log-api.yaml
+    Description: S3 key of the staged openapi.yaml within OpenApiBucketName.
+  OpenApiSpecHash:
+    Type: String
+    Description: >
+      sha256 of apps/log-api/openapi.yaml, passed by the deploy script. Changing this
+      value forces AWS::ApiGateway::Deployment to replace itself (deployments are
+      immutable snapshots in API Gateway), so a spec-only change is picked up on deploy.
+  NlbDnsName:
+    Type: String
+    Description: >
+      DNS name of the shared internal NLB (06-shared-cluster-lb.yaml NLBDnsName Output).
+      Used as the backend host in openapi.yaml's integration URIs.
 
 Resources:
 
@@ -90,46 +117,50 @@ Resources:
         - Type: forward
           TargetGroupArn: !Ref NlbTargetGroup
 
-  # ── ALB → NLB 転送用ターゲットグループ + ListenerRule（このアプリ専用） ────
-  # NLB の固定プライベート IP のポート 8081（このアプリの NLBListener）宛に転送する。
-  # Name は明示指定しない（CloudFormation が自動生成する。理由は NlbTargetGroup と同じ）。
-  AlbToNlbTargetGroup:
-    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+  # ── API Gateway REST API（このアプリ専用。Internet からの唯一の入口） ──────
+  # NLB を PrivateLink 経由のターゲットとする VPC Link。REST API の VpcLink は
+  # サブネット/SG ではなく NLB の ARN を直接指定する（HTTP API の VpcLink とは異なる）。
+  VpcLink:
+    Type: AWS::ApiGateway::VpcLink
     Properties:
-      Protocol: HTTP
-      Port: 8081
-      VpcId: !ImportValue
-        Fn::Sub: ${ProjectName}-vpc-id
-      TargetType: ip
-      Targets:
-        - Id: !ImportValue
-            Fn::Sub: ${ProjectName}-nlb-private-ip-1a
-          Port: 8081
-        - Id: !ImportValue
-            Fn::Sub: ${ProjectName}-nlb-private-ip-1c
-          Port: 8081
-      HealthCheckPath: /health
-      HealthCheckProtocol: HTTP
-      HealthCheckIntervalSeconds: 30
-      HealthCheckTimeoutSeconds: 5
-      HealthyThresholdCount: 2
-      UnhealthyThresholdCount: 3
+      Name: !Sub ${ProjectName}-log-api-vpclink
+      TargetArns:
+        - !ImportValue
+          Fn::Sub: ${ProjectName}-nlb-arn
 
-  # /logs, /logs/* → NLB(:8081) 経由でこのアプリの ECS へ転送
-  ALBListenerRuleLogs:
-    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+  # Body は apps/log-api/openapi.yaml を S3 経由で読み込む（Fn::Transform: AWS::Include）。
+  # openapi.yaml 内の connectionId/uri は、この Include 展開後に同一テンプレート内の
+  # VpcLink / NlbDnsName パラメータとして解決される。
+  RestApi:
+    Type: AWS::ApiGateway::RestApi
     Properties:
-      ListenerArn: !ImportValue
-        Fn::Sub: ${ProjectName}-alb-listener-arn
-      Priority: 4
-      Conditions:
-        - Field: path-pattern
-          Values:
-            - /logs
-            - /logs/*
-      Actions:
-        - Type: forward
-          TargetGroupArn: !Ref AlbToNlbTargetGroup
+      Name: !Sub ${ProjectName}-log-api
+      EndpointConfiguration:
+        Types:
+          - REGIONAL
+      Body:
+        Fn::Transform:
+          Name: AWS::Include
+          Parameters:
+            Location: !Sub s3://${OpenApiBucketName}/${OpenApiObjectKey}
+
+  # AWS::ApiGateway::Deployment はプロパティが同一だと更新検知されず、
+  # openapi.yaml だけを変更してもデプロイに反映されない。Description に spec のハッシュを
+  # 含めることで、ハッシュが変わるたびに新しい Deployment が作られる（API Gateway の
+  # Deployment は不変のスナップショットなので、変更は常に置き換えとして扱われる）。
+  ApiDeployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn: RestApi
+    Properties:
+      RestApiId: !Ref RestApi
+      Description: !Sub Deployment for openapi.yaml sha256:${OpenApiSpecHash}
+
+  ApiStage:
+    Type: AWS::ApiGateway::Stage
+    Properties:
+      RestApiId: !Ref RestApi
+      DeploymentId: !Ref ApiDeployment
+      StageName: prod
 
   # ── ECS Service ──────────────────────────────────────────────────────────
   ECSService:
@@ -168,3 +199,8 @@ Outputs:
     Value: !GetAtt ECSService.Name
     Export:
       Name: !Sub ${ProjectName}-log-api-ecs-service-name
+
+  ApiInvokeUrl:
+    Value: !Sub https://${RestApi}.execute-api.${AWS::Region}.amazonaws.com/${ApiStage}
+    Export:
+      Name: !Sub ${ProjectName}-log-api-invoke-url
