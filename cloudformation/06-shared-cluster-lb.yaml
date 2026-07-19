@@ -1,0 +1,205 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Shared ECS Cluster + ALB + internal NLB stack, shared by all application-specific
+  ECS service stacks (07-ecs-*.yaml, 08-ecs-*.yaml, ...).
+  Imports VPC/subnet IDs from the network stack.
+  Traffic path: Internet -> ALB (Public) -> NLB (Application, internal) -> ECS (Private).
+  Since NLB is L4 and cannot do path-based routing, each app gets its own NLB
+  listener port to keep traffic separated (the NLB Listener itself is added by
+  each app's ECS stack, not here).
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: java-apm-sample
+  NlbPrivateIp1a:
+    Type: String
+    Default: 10.20.32.10
+    Description: >
+      Static private IP for the internal NLB node in Application Subnet 1a.
+      Must be within ApplicationSubnet1a CIDR (10.20.32.0/20). Each app's ALB target
+      group registers this IP directly since ALB target groups have no native "nlb"
+      target type.
+  NlbPrivateIp1c:
+    Type: String
+    Default: 10.20.48.10
+    Description: >
+      Static private IP for the internal NLB node in Application Subnet 1c.
+      Must be within ApplicationSubnet1c CIDR (10.20.48.0/20).
+
+Resources:
+
+  # ── Security Groups ──────────────────────────────────────────────────────
+  ALBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub ${ProjectName}-alb-sg
+      GroupDescription: Allow HTTP from anywhere to ALB
+      VpcId: !ImportValue
+        Fn::Sub: ${ProjectName}-vpc-id
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+
+  NLBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub ${ProjectName}-nlb-sg
+      GroupDescription: Allow port 80 from ALB only (internal NLB, no internet access)
+      VpcId: !ImportValue
+        Fn::Sub: ${ProjectName}-vpc-id
+      SecurityGroupIngress:
+        # user-company-api の NLB Listener ポート
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          SourceSecurityGroupId: !Ref ALBSecurityGroup
+        # log-api の NLB Listener ポート
+        - IpProtocol: tcp
+          FromPort: 8081
+          ToPort: 8081
+          SourceSecurityGroupId: !Ref ALBSecurityGroup
+
+  # 全アプリ共通の ECS タスク SG。全アプリのコンテナポートが 8080 で統一されているため共有する。
+  ECSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub ${ProjectName}-ecs-sg
+      GroupDescription: Allow port 8080 from NLB only (shared by all app ECS services)
+      VpcId: !ImportValue
+        Fn::Sub: ${ProjectName}-vpc-id
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 8080
+          ToPort: 8080
+          SourceSecurityGroupId: !Ref NLBSecurityGroup
+
+  # ── IAM Role ─────────────────────────────────────────────────────────────
+  # TaskExecutionRole: ECS エージェントが ECR からイメージを pull し、CloudWatch Logs に書き込むための権限。
+  # アプリ固有の業務権限を含まない汎用ロールのため、全アプリで共有する。
+  TaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${ProjectName}-task-execution-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+
+  # ── ECS Cluster（全アプリ共有） ─────────────────────────────────────────────
+  ECSCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub ${ProjectName}-cluster
+
+  # ── ALB（Public Subnet、internet-facing） ─────────────────────────────────
+  ALB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub ${ProjectName}-alb
+      Scheme: internet-facing
+      Type: application
+      Subnets:
+        - !ImportValue
+          Fn::Sub: ${ProjectName}-public-subnet-1a-id
+        - !ImportValue
+          Fn::Sub: ${ProjectName}-public-subnet-1c-id
+      SecurityGroups:
+        - !Ref ALBSecurityGroup
+
+  # デフォルトアクション: どのアプリの ListenerRule にもマッチしないパスは 404 を返す。
+  # 各アプリの ListenerRule（path-pattern による振り分け）はアプリ別スタック側で追加する。
+  ALBListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ALB
+      Protocol: HTTP
+      Port: 80
+      DefaultActions:
+        - Type: fixed-response
+          FixedResponseConfig:
+            StatusCode: "404"
+            ContentType: application/json
+            MessageBody: '{"error":"Not Found"}'
+
+  # ── NLB（Application Subnet、internal。インターネットからのアクセス不可） ──
+  # 全アプリで共有する。NLB は L4 でパスベースルーティングができないため、
+  # アプリごとの Listener（別ポート）とターゲットグループはアプリ別スタック側で追加する。
+  NLB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub ${ProjectName}-nlb
+      Scheme: internal
+      Type: network
+      SubnetMappings:
+        - SubnetId: !ImportValue
+            Fn::Sub: ${ProjectName}-application-subnet-1a-id
+          PrivateIPv4Address: !Ref NlbPrivateIp1a
+        - SubnetId: !ImportValue
+            Fn::Sub: ${ProjectName}-application-subnet-1c-id
+          PrivateIPv4Address: !Ref NlbPrivateIp1c
+      SecurityGroups:
+        - !Ref NLBSecurityGroup
+
+Outputs:
+  ALBSecurityGroupId:
+    Value: !Ref ALBSecurityGroup
+    Export:
+      Name: !Sub ${ProjectName}-alb-sg-id
+
+  NLBSecurityGroupId:
+    Value: !Ref NLBSecurityGroup
+    Export:
+      Name: !Sub ${ProjectName}-nlb-sg-id
+
+  ECSSecurityGroupId:
+    Value: !Ref ECSSecurityGroup
+    Export:
+      Name: !Sub ${ProjectName}-ecs-sg-id
+
+  TaskExecutionRoleArn:
+    Value: !GetAtt TaskExecutionRole.Arn
+    Export:
+      Name: !Sub ${ProjectName}-task-execution-role-arn
+
+  ECSClusterName:
+    Value: !Ref ECSCluster
+    Export:
+      Name: !Sub ${ProjectName}-ecs-cluster-name
+
+  ALBArn:
+    Value: !Ref ALB
+    Export:
+      Name: !Sub ${ProjectName}-alb-arn
+
+  ALBDnsName:
+    Value: !GetAtt ALB.DNSName
+    Export:
+      Name: !Sub ${ProjectName}-alb-dns
+
+  ALBListenerArn:
+    Value: !Ref ALBListener
+    Export:
+      Name: !Sub ${ProjectName}-alb-listener-arn
+
+  NLBArn:
+    Value: !Ref NLB
+    Export:
+      Name: !Sub ${ProjectName}-nlb-arn
+
+  NlbPrivateIp1a:
+    Value: !Ref NlbPrivateIp1a
+    Export:
+      Name: !Sub ${ProjectName}-nlb-private-ip-1a
+
+  NlbPrivateIp1c:
+    Value: !Ref NlbPrivateIp1c
+    Export:
+      Name: !Sub ${ProjectName}-nlb-private-ip-1c

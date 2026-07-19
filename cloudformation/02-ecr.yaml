@@ -1,17 +1,23 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: ECR repository stack.
+Description: >
+  ECR repository stack. Docker images/repositories are separated per application,
+  so this template is deployed once per app by changing the AppName parameter
+  (and the stack name).
 
 Parameters:
   ProjectName:
     Type: String
     Default: java-apm-sample
+  AppName:
+    Type: String
+    Description: "App name (e.g. user-company-api, log-api). Used in the repository name and Export names."
 
 Resources:
 
   ECRRepository:
     Type: AWS::ECR::Repository
     Properties:
-      RepositoryName: !Sub ${ProjectName}
+      RepositoryName: !Sub ${ProjectName}-${AppName}
       ImageScanningConfiguration:
         ScanOnPush: true
       LifecyclePolicy:
@@ -36,9 +42,9 @@ Outputs:
   ECRRepositoryUri:
     Value: !GetAtt ECRRepository.RepositoryUri
     Export:
-      Name: !Sub ${ProjectName}-ecr-uri
+      Name: !Sub ${ProjectName}-${AppName}-ecr-uri
 
   ECRRepositoryName:
     Value: !Ref ECRRepository
     Export:
-      Name: !Sub ${ProjectName}-ecr-name
+      Name: !Sub ${ProjectName}-${AppName}-ecr-name

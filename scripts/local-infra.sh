@@ -34,10 +34,13 @@ log() {
   printf '\033[1;36m[%s]\033[0m %s\n' "$(date +%H:%M:%S)" "$*"
 }
 
+# user-company-api 専用のローカルインフラ（MySQL + DynamoDB Local）。log-api は外部依存がないため対象外。
+COMPOSE_FILE="${PROJECT_DIR}/apps/user-company-api/docker-compose.yml"
+
 # --stop オプションで全コンテナを停止・削除する
 if [[ "${1:-}" == "--stop" ]]; then
   log "Stopping all local infra containers"
-  docker compose -f "${PROJECT_DIR}/docker-compose.yml" down
+  docker compose -f "${COMPOSE_FILE}" down
   log "Done"
   exit 0
 fi
@@ -45,7 +48,7 @@ fi
 # ----- コンテナの起動 -----
 log "Starting local infra (MySQL + DynamoDB Local)"
 # --wait: MySQL の healthcheck が通過するまで待機する
-docker compose -f "${PROJECT_DIR}/docker-compose.yml" up -d --wait
+docker compose -f "${COMPOSE_FILE}" up -d --wait
 
 # ----- DynamoDB Local の疎通確認 -----
 # dynamodb-local は healthcheck 未設定のため、AWS CLI でポーリングする

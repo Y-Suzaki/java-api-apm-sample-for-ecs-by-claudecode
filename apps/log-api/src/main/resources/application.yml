@@ -1,0 +1,8 @@
+spring:
+  application:
+    name: log-api
+
+# アプリケーション固有の設定
+app:
+  # 稼働環境名。ECS タスク定義の環境変数 APP_ENV で上書きされる（例: prod）
+  env: ${APP_ENV:local}
