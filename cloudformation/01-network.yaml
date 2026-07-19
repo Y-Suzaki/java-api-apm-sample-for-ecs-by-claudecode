@@ -1,7 +1,7 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >
-  Network stack - VPC, Public/Private subnets (2AZ), IGW, NAT GW (1AZ),
-  DynamoDB and S3 Gateway VPC Endpoints.
+  Network stack - VPC, Public/Application/Private subnets (2AZ, 3-tier), IGW,
+  NAT GW (1AZ), DynamoDB and S3 Gateway VPC Endpoints.
 
 Parameters:
   ProjectName:
@@ -34,12 +34,12 @@ Resources:
       VpcId: !Ref VPC
       InternetGatewayId: !Ref InternetGateway
 
-  # ── Public Subnets ───────────────────────────────────────────────────────
+  # ── Public Subnets（/20: 10.20.0.0 - 10.20.31.255） ───────────────────────
   PublicSubnet1a:
     Type: AWS::EC2::Subnet
     Properties:
       VpcId: !Ref VPC
-      CidrBlock: 10.20.0.0/24
+      CidrBlock: 10.20.0.0/20
       AvailabilityZone: ap-northeast-1a
       MapPublicIpOnLaunch: true
       Tags:
@@ -50,19 +50,41 @@ Resources:
     Type: AWS::EC2::Subnet
     Properties:
       VpcId: !Ref VPC
-      CidrBlock: 10.20.1.0/24
+      CidrBlock: 10.20.16.0/20
       AvailabilityZone: ap-northeast-1c
       MapPublicIpOnLaunch: true
       Tags:
         - Key: Name
           Value: !Sub ${ProjectName}-public-1c
 
-  # ── Private Subnets ──────────────────────────────────────────────────────
+  # ── Application Subnets（3層構成の中間層。/20: 10.20.32.0 - 10.20.63.255） ──
+  # 今後のシステム構成変更（ECS 等の移行）に備えた準備。現時点ではリソース未配置。
+  ApplicationSubnet1a:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.20.32.0/20
+      AvailabilityZone: ap-northeast-1a
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-application-1a
+
+  ApplicationSubnet1c:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.20.48.0/20
+      AvailabilityZone: ap-northeast-1c
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-application-1c
+
+  # ── Private Subnets（/20: 10.20.64.0 - 10.20.95.255） ─────────────────────
   PrivateSubnet1a:
     Type: AWS::EC2::Subnet
     Properties:
       VpcId: !Ref VPC
-      CidrBlock: 10.20.10.0/24
+      CidrBlock: 10.20.64.0/20
       AvailabilityZone: ap-northeast-1a
       Tags:
         - Key: Name
@@ -72,7 +94,7 @@ Resources:
     Type: AWS::EC2::Subnet
     Properties:
       VpcId: !Ref VPC
-      CidrBlock: 10.20.11.0/24
+      CidrBlock: 10.20.80.0/20
       AvailabilityZone: ap-northeast-1c
       Tags:
         - Key: Name
@@ -123,6 +145,34 @@ Resources:
       SubnetId: !Ref PublicSubnet1c
       RouteTableId: !Ref PublicRouteTable
 
+  # ── Application Route Table ──────────────────────────────────────────────
+  ApplicationRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-application-rt
+
+  ApplicationRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref ApplicationRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway
+
+  ApplicationSubnet1aRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref ApplicationSubnet1a
+      RouteTableId: !Ref ApplicationRouteTable
+
+  ApplicationSubnet1cRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref ApplicationSubnet1c
+      RouteTableId: !Ref ApplicationRouteTable
+
   # ── Private Route Table ──────────────────────────────────────────────────
   PrivateRouteTable:
     Type: AWS::EC2::RouteTable
@@ -153,6 +203,8 @@ Resources:
 
   # ── DynamoDB Gateway VPC Endpoint（NAT 課金回避） ────────────────────────
   # ECS タスクの DynamoDB 通信が NAT GW を経由しないよう Gateway 型 Endpoint を使う。
+  # Application Route Table にも関連付け、将来 ECS を Application Subnet へ
+  # 移行した場合にそのまま経路が使えるようにしておく。
   DynamoDBEndpoint:
     Type: AWS::EC2::VPCEndpoint
     Properties:
@@ -161,10 +213,12 @@ Resources:
       VpcEndpointType: Gateway
       RouteTableIds:
         - !Ref PrivateRouteTable
+        - !Ref ApplicationRouteTable
 
   # ── S3 Gateway VPC Endpoint（NAT 課金回避） ──────────────────────────────
   # ECR イメージレイヤーは S3 に格納されているため、Private Subnet からの
   # イメージプルが NAT GW を経由しないよう Gateway 型 Endpoint を使う。
+  # DynamoDBEndpoint と同様、Application Route Table にも関連付けておく。
   S3Endpoint:
     Type: AWS::EC2::VPCEndpoint
     Properties:
@@ -173,6 +227,7 @@ Resources:
       VpcEndpointType: Gateway
       RouteTableIds:
         - !Ref PrivateRouteTable
+        - !Ref ApplicationRouteTable
 
 Outputs:
   VpcId:
@@ -189,6 +244,16 @@ Outputs:
     Value: !Ref PublicSubnet1c
     Export:
       Name: !Sub ${ProjectName}-public-subnet-1c-id
+
+  ApplicationSubnet1aId:
+    Value: !Ref ApplicationSubnet1a
+    Export:
+      Name: !Sub ${ProjectName}-application-subnet-1a-id
+
+  ApplicationSubnet1cId:
+    Value: !Ref ApplicationSubnet1c
+    Export:
+      Name: !Sub ${ProjectName}-application-subnet-1c-id
 
   PrivateSubnet1aId:
     Value: !Ref PrivateSubnet1a

@@ -1,0 +1,45 @@
+openapi: "3.0.1"
+info:
+  title: log-api
+  description: 任意の JSON ログを受け付けて標準出力するだけの最小サンプル API。
+  version: "1.0.0"
+paths:
+  /health:
+    get:
+      summary: ヘルスチェック
+      responses:
+        "200":
+          description: OK
+      x-amazon-apigateway-integration:
+        type: HTTP_PROXY
+        httpMethod: GET
+        uri:
+          Fn::Sub: "http://${NlbDnsName}:8081/health"
+        connectionType: VPC_LINK
+        connectionId:
+          Ref: VpcLink
+        passthroughBehavior: WHEN_NO_MATCH
+  /logs:
+    post:
+      summary: JSON ログを標準出力する
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {}
+      responses:
+        "202":
+          description: Accepted
+        "400":
+          description: Bad Request（不正な JSON）
+        "415":
+          description: Unsupported Media Type（Content-Type が application/json でない）
+      x-amazon-apigateway-integration:
+        type: HTTP_PROXY
+        httpMethod: POST
+        uri:
+          Fn::Sub: "http://${NlbDnsName}:8081/logs"
+        connectionType: VPC_LINK
+        connectionId:
+          Ref: VpcLink
+        passthroughBehavior: WHEN_NO_MATCH

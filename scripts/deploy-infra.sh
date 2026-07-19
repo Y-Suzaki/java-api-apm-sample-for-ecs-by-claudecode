@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# CloudFormation スタック 01〜03、05 をデプロイする（ネットワーク、ECR、DynamoDB、RDS）。
-# ECS サービス（04）は Docker イメージ URI が必要なため deploy-service.sh で行う。
+# CloudFormation の共有インフラスタック（ネットワーク、ECR x アプリ数、DynamoDB、RDS、
+# ECS Cluster/ALB/NLB）をデプロイする。
+# 各アプリの ECS サービス（07/08）は Docker イメージ URI が必要なため deploy-service.sh で行う。
 #
 # RDS MySQL マスターパスワードは RDS 管理シークレット（ManageMasterUserPassword）により
 # AWS が自動生成・管理するため、デプロイ側でのパスワード指定は不要。
@@ -12,21 +13,28 @@ source "${SCRIPT_DIR}/common.sh"
 
 log "=== Deploying infrastructure stacks ==="
 
-# 01: ネットワーク（VPC / サブネット / IGW / NAT GW / DynamoDB VPC Endpoint）
+# 01: ネットワーク（VPC / サブネット / IGW / NAT GW / DynamoDB・S3 VPC Endpoint）
 deploy_stack "${NETWORK_STACK}" "${CF_DIR}/01-network.yaml" \
   "ProjectName=${PROJECT_NAME}"
 
-# 02: ECR リポジトリ
-deploy_stack "${ECR_STACK}" "${CF_DIR}/02-ecr.yaml" \
-  "ProjectName=${PROJECT_NAME}"
+# 02: ECR リポジトリ（アプリごとに1つ）
+for app in "${APPS[@]}"; do
+  deploy_stack "$(app_ecr_stack "${app}")" "${CF_DIR}/02-ecr.yaml" \
+    "ProjectName=${PROJECT_NAME}" \
+    "AppName=${app}"
+done
 
-# 03: DynamoDB users テーブル
+# 03: DynamoDB users テーブル（user-company-api 用）
 deploy_stack "${DYNAMODB_STACK}" "${CF_DIR}/03-dynamodb.yaml" \
   "ProjectName=${PROJECT_NAME}"
 
-# 05: RDS MySQL 8.4（Company API 用; 04-ecs-alb が ImportValue で参照するため先にデプロイ）
+# 05: RDS MySQL 8.4（user-company-api の Company API 用）
 deploy_stack "${RDS_STACK}" "${CF_DIR}/05-rds.yaml" \
   "ProjectName=${PROJECT_NAME}"
 
+# 06: 共有 ECS Cluster / ALB / NLB / SG（全アプリ共有）
+deploy_stack "${SHARED_STACK}" "${CF_DIR}/06-shared-cluster-lb.yaml" \
+  "ProjectName=${PROJECT_NAME}"
+
 log_success "=== Infrastructure stacks deployed ==="
-log "Next step: bash scripts/build.sh"
+log "Next step: bash scripts/build.sh <app>  (app: ${APPS[*]})"

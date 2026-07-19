@@ -2,11 +2,43 @@
 # CLAUDE.md — Java バックエンド開発ガイド
 
 ## プロジェクト概要
-* Spring Boot 3.5 によるバックエンド REST API を開発する。
+* Spring Boot によるバックエンド REST API を開発する。
 * Python 版（`python-api-apm-sample-for-ecs-by-claudecode`）と同等の API 機能を提供する。
-* インフラは AWS を利用し、ALB と ECS を利用する。
+* インフラは AWS を利用し、ALB / API Gateway と ECS を利用する。
 * インフラコードの管理は CloudFormation Template を利用する。
-* APM（分散トレーシング）は後フェーズで追加する。現フェーズでは実装しない。
+* **リポジトリはマルチアプリ構成**。Spring Boot アプリケーション・Docker Image・ECS Service は
+  アプリごとに分離し、それぞれ独立してビルド・デプロイできるようにする。
+  ECS Cluster・ALB・NLB は全アプリで共有する（詳細は「リポジトリ構成（マルチアプリ）」節を参照）。
+
+## リポジトリ構成（マルチアプリ）
+
+`apps/` 配下にアプリごとの独立した Spring Boot プロジェクトを置く。各アプリは自前の
+`pom.xml`（`spring-boot-starter-parent` を直接継承）・`Dockerfile` を持ち、コード共有はしない。
+
+| アプリ | ディレクトリ | 役割 | APM | Internet からの入口 |
+|---|---|---|---|---|
+| `user-company-api` | `apps/user-company-api/` | User API（DynamoDB）+ Company API（MySQL/Aurora） | あり（ADOT Java Agent + CloudWatch Agent サイドカー） | ALB |
+| `log-api` | `apps/log-api/` | JSON ログを受け付けて標準出力するだけの最小サンプル（アプリケーション分離の実証用） | なし | API Gateway（REST API） |
+
+**NLB 共有の実現方法**: NLB は L4 でパスベースルーティングができないため、**アプリごとに NLB の
+リスナーポートを分ける**（`user-company-api`=80、`log-api`=8081）。NLB オブジェクト自体
+（`AWS::ElasticLoadBalancingV2::LoadBalancer`）は共有スタック（`06-shared-cluster-lb.yaml`）が
+1つだけ所有し、Listener・TargetGroup はアプリ別スタック（`07-`/`08-`）がそれぞれ追加する。
+
+**Internet からの入口はアプリごとに異なってよい**。`user-company-api` は ALB の path-pattern
+ListenerRule 経由（ALB → NLB → ECS）。`log-api` は API Gateway（REST API）の VPC Link 経由で
+NLB に直接到達する（API Gateway → VPC Link → NLB → ECS、ALB は経由しない）。詳細は
+「通信経路」節を参照。
+
+アプリを追加する場合:
+1. `apps/<new-app>/` に独立した Spring Boot プロジェクトを作成する。
+2. `cloudformation/0X-ecs-<new-app>.yaml` を作成し、`06-shared-cluster-lb.yaml` の Export
+   （ECS Cluster / SG / NLBArn / NlbPrivateIp / OpenApiBucketName 等）を Import して、そのアプリ専用の
+   NLB Listener（他アプリと重複しない新しいポート）・TargetGroup・TaskDefinition・ECS Service を
+   定義する。ALB 経由にする場合は ALBListenerArn も Import して ALB TargetGroup/ListenerRule を追加し、
+   API Gateway 経由にする場合は VpcLink/RestApi/Deployment/Stage を追加する。
+3. `cloudformation/02-ecr.yaml` を `AppName=<new-app>` で追加デプロイする。
+4. `scripts/common.sh` の `APPS` 配列と `app_ecs_template()` に追加する。
 
 ## 技術スタック
 | 用途                   | ライブラリ／ツール                                       |
@@ -29,66 +61,84 @@
 ## ディレクトリ構成
 ```
 /
-├── src/
-│   └── main/
-│       ├── java/com/example/api/
-│       │   ├── ApiApplication.java          # Spring Boot エントリポイント
-│       │   ├── config/
-│       │   │   ├── AppProperties.java       # @ConfigurationProperties バインド
-│       │   │   └── DynamoDbConfig.java      # AmazonDynamoDB / DynamoDBMapper Bean 定義
-│       │   ├── client/
-│       │   │   └── IpifyClient.java         # @FeignClient（ipify 外部 HTTP 呼び出し）
-│       │   ├── controller/
-│       │   │   ├── HealthController.java        # GET /health
-│       │   │   ├── UserController.java          # /users CRUD
-│       │   │   ├── CompanyController.java       # /companies CRUD
-│       │   │   └── ConfigurationController.java # GET /configuration
-│       │   ├── service/
-│       │   │   ├── UserService.java             # ユーザー CRUD ビジネスロジック
-│       │   │   └── CompanyService.java          # 会社 CRUD ビジネスロジック
-│       │   ├── repository/
-│       │   │   ├── UserRepository.java          # DynamoDB アクセス層（DynamoDBMapper）
-│       │   │   └── CompanyRepository.java       # JPA アクセス層（JpaRepository）
-│       │   ├── model/
-│       │   │   ├── UserItem.java                # DynamoDB テーブルマッピング（@DynamoDBTable）
-│       │   │   ├── UserResponse.java            # API レスポンス（record）
-│       │   │   ├── UserCreateRequest.java       # 新規作成リクエスト（record）
-│       │   │   ├── UserUpdateRequest.java       # 更新リクエスト（record）
-│       │   │   ├── ConfigurationResponse.java   # /configuration レスポンス（record）
-│       │   │   ├── CompanyEntity.java           # JPA エンティティ（@Entity / @Table）
-│       │   │   ├── CompanyResponse.java         # API レスポンス（record）
-│       │   │   ├── CompanyCreateRequest.java    # 新規作成リクエスト（record）
-│       │   │   └── CompanyUpdateRequest.java    # 更新リクエスト（record）
-│       │   └── exception/
-│       │       ├── UserAlreadyExistsException.java
-│       │       ├── UserNotFoundException.java
-│       │       ├── CompanyAlreadyExistsException.java
-│       │       ├── CompanyNotFoundException.java
-│       │       └── GlobalExceptionHandler.java  # @RestControllerAdvice
-│       └── resources/
-│           └── application.yml
+├── apps/
+│   ├── user-company-api/
+│   │   ├── src/
+│   │   │   └── main/
+│   │   │       ├── java/com/example/api/
+│   │   │       │   ├── ApiApplication.java          # Spring Boot エントリポイント
+│   │   │       │   ├── config/
+│   │   │       │   │   ├── AppProperties.java       # @ConfigurationProperties バインド
+│   │   │       │   │   └── DynamoDbConfig.java      # AmazonDynamoDB / DynamoDBMapper Bean 定義
+│   │   │       │   ├── client/
+│   │   │       │   │   └── IpifyClient.java         # @FeignClient（ipify 外部 HTTP 呼び出し）
+│   │   │       │   ├── controller/
+│   │   │       │   │   ├── HealthController.java        # GET /health
+│   │   │       │   │   ├── UserController.java          # /users CRUD
+│   │   │       │   │   ├── CompanyController.java       # /companies CRUD
+│   │   │       │   │   └── ConfigurationController.java # GET /configuration
+│   │   │       │   ├── service/
+│   │   │       │   │   ├── UserService.java             # ユーザー CRUD ビジネスロジック
+│   │   │       │   │   └── CompanyService.java          # 会社 CRUD ビジネスロジック
+│   │   │       │   ├── repository/
+│   │   │       │   │   ├── UserRepository.java          # DynamoDB アクセス層（DynamoDBMapper）
+│   │   │       │   │   └── CompanyRepository.java       # JPA アクセス層（JpaRepository）
+│   │   │       │   ├── model/
+│   │   │       │   │   ├── UserItem.java                # DynamoDB テーブルマッピング（@DynamoDBTable）
+│   │   │       │   │   ├── UserResponse.java            # API レスポンス（record）
+│   │   │       │   │   ├── UserCreateRequest.java       # 新規作成リクエスト（record）
+│   │   │       │   │   ├── UserUpdateRequest.java       # 更新リクエスト（record）
+│   │   │       │   │   ├── ConfigurationResponse.java   # /configuration レスポンス（record）
+│   │   │       │   │   ├── CompanyEntity.java           # JPA エンティティ（@Entity / @Table）
+│   │   │       │   │   ├── CompanyResponse.java         # API レスポンス（record）
+│   │   │       │   │   ├── CompanyCreateRequest.java    # 新規作成リクエスト（record）
+│   │   │       │   │   └── CompanyUpdateRequest.java    # 更新リクエスト（record）
+│   │   │       │   └── exception/
+│   │   │       │       ├── UserAlreadyExistsException.java
+│   │   │       │       ├── UserNotFoundException.java
+│   │   │       │       ├── CompanyAlreadyExistsException.java
+│   │   │       │       ├── CompanyNotFoundException.java
+│   │   │       │       └── GlobalExceptionHandler.java  # @RestControllerAdvice
+│   │   │       └── resources/
+│   │   │           └── application.yml
+│   │   ├── mysql/init/01_init.sql       # companies テーブル DDL（MySQL 初期化）
+│   │   ├── docker-compose.yml           # ローカル開発用（MySQL 8.0 + DynamoDB Local）
+│   │   ├── Dockerfile                   # ADOT Java Agent 同梱
+│   │   ├── .dockerignore
+│   │   └── pom.xml
+│   └── log-api/
+│       ├── src/
+│       │   └── main/
+│       │       ├── java/com/example/logapi/
+│       │       │   ├── LogApiApplication.java       # Spring Boot エントリポイント
+│       │       │   ├── config/AppProperties.java
+│       │       │   └── controller/
+│       │       │       ├── HealthController.java    # GET /health
+│       │       │       └── LogController.java       # POST /logs（JSON ログを受け付けて標準出力）
+│       │       └── resources/application.yml
+│       ├── openapi.yaml                 # log-api の OpenAPI 3 仕様書（API Gateway Body import 用）
+│       ├── Dockerfile                   # APM 計装なしの最小構成
+│       ├── .dockerignore
+│       └── pom.xml
 ├── cloudformation/
 │   ├── 01-network.yaml
-│   ├── 02-ecr.yaml
-│   ├── 03-dynamodb.yaml
-│   └── 04-ecs-alb.yaml
+│   ├── 02-ecr.yaml                     # AppName パラメータ化。アプリごとにデプロイ
+│   ├── 03-dynamodb.yaml                # user-company-api 専用
+│   ├── 05-rds.yaml                     # user-company-api 専用
+│   ├── 06-shared-cluster-lb.yaml       # 共有: ECS Cluster / ALB(+Listener) / NLB / SG群 / TaskExecutionRole / OpenAPI 用 S3 バケット
+│   ├── 07-ecs-user-company-api.yaml    # user-company-api の ECS Service（ALB 経由）
+│   └── 08-ecs-log-api.yaml             # log-api の ECS Service + API Gateway（REST API）+ VPC Link
 ├── scripts/
-│   ├── common.sh
-│   ├── build.sh
-│   ├── deploy-infra.sh
-│   ├── deploy-service.sh
+│   ├── common.sh          # APPS 配列・app_ecr_stack()/app_ecs_stack() 等のヘルパー
+│   ├── build.sh            # 第1引数 <app> 必須
+│   ├── deploy-infra.sh     # 共有インフラ（01,02×アプリ数,03,05,06）をデプロイ
+│   ├── deploy-service.sh   # 第1引数 <app> 必須
 │   ├── deploy-all.sh
 │   ├── delete-all.sh
 │   ├── local-infra.sh
-│   └── local-run.sh
-├── mysql/
-│   └── init/
-│       └── 01_init.sql              # companies テーブル DDL（MySQL 初期化）
-├── docker-compose.yml               # ローカル開発用（MySQL 8.0 + DynamoDB Local）
-├── Dockerfile
-├── .dockerignore
+│   └── local-run.sh        # 第1引数 <app> 必須
 ├── .gitignore
-└── pom.xml
+└── CLAUDE.md
 ```
 
 ## バックエンド API の機能
@@ -121,7 +171,28 @@ Python 版と同等のエンドポイントを実装する。
 後フェーズで Feign Client の自動計装が X-Ray サービスマップに外部 HTTP ノードとして現れることを
 確認するためにも使う。
 
+### Log API（`apps/log-api/`。アプリケーション分離の最低限のサンプル）
+DB・外部 API 依存を持たない、JSON 形式のログを受け付けて標準出力するだけの単機能アプリ。
+Internet からの入口は ALB ではなく **API Gateway（REST API）**（詳細は「通信経路」節）。
+
+| メソッド | パス | 説明 |
+|--------|------|------|
+| GET | /health | ALB/NLB ヘルスチェック。`{"status":"ok","env":"..."}` を返す |
+| POST | /logs | JSON ボディを受け付けて SLF4J で標準出力する（202 Accepted） |
+
+* `@RequestBody JsonNode` で受ける。フィールド構成は特定のスキーマに固定せず任意の JSON 構造を
+  許容するが、`Content-Type: application/json` かつ構文として妥当な JSON であることは必須
+  （Content-Type 不一致は 415、不正な JSON は 400 を Spring のデフォルトエラーハンドリングが返す）。
+* 標準出力に流すだけなので ECS の awslogs ドライバがそのまま CloudWatch Logs に転送する。
+* APM（ADOT/X-Ray）は組み込まない。TaskRole も付与しない（AWS API を呼ばないため）。
+* API 仕様は `apps/log-api/openapi.yaml`（OpenAPI 3）で管理し、API Gateway REST API の
+  `Body` に `Fn::Transform: AWS::Include` で読み込ませる。仕様書を変更してデプロイスクリプトを
+  実行するだけで API Gateway の定義に反映される（詳細は「通信経路」節）。
+
 ## アプリケーション層の設計
+
+> 以降のこの節（DynamoDB/MySQL モデル、DTO、エラーレスポンス、Feign Client 等）は
+> `apps/user-company-api/` に関する内容。`log-api` は DB・外部依存を持たない最小構成のため対象外。
 
 ### 設定（application.yml / 環境変数）
 ```yaml
@@ -261,6 +332,10 @@ Spring Boot デフォルトの **8080** を使用する（Python 版の 8000 と
 
 ## Docker Image の方針
 
+各アプリの `Dockerfile` は `apps/<app>/` 配下にあり、ビルドコンテキストも `apps/<app>/`
+（`scripts/build.sh <app>` が `docker build apps/<app>` する）。イメージはアプリごとに別の
+ECR リポジトリへプッシュする。
+
 ### マルチステージビルド
 ```
 Stage 1（builder）: amazoncorretto:17-al2023 → Maven をインストールして mvn package でファット JAR を生成
@@ -272,12 +347,15 @@ Stage 2（runtime）: amazoncorretto:17-al2023 → JAR のみコピー、非 roo
 * ビルドキャッシュ効率化のため、`pom.xml` を先にコピーして `mvn dependency:go-offline -q` を実行してから
   `src/` をコピーして `mvn package -DskipTests -q` を実行する。
 * 非 root ユーザー（`app`）で動作させる（`useradd -r app`）。
-* `EXPOSE 8080`、起動コマンドは `java -Dspring.output.ansi.enabled=NEVER -jar app.jar`。
+* `EXPOSE 8080`、起動コマンドは `java -Dspring.output.ansi.enabled=NEVER -jar app.jar`
+  （user-company-api は `-javaagent:/app/aws-opentelemetry-agent.jar` を追加、log-api には付けない）。
 * ECS の awslogs ドライバへ stdout を流す前提。`-Dspring.output.ansi.enabled=NEVER` で
   ANSI カラーコードを除去してログを可読にする。
 
 ### .dockerignore
-`target/`、`.git/`、`*.md`、`scripts/`、`cloudformation/` などビルド不要なものを除外する。
+ビルドコンテキストがアプリディレクトリ単位になったため、`target/`、`.git/`、`*.md`、`.idea/`、
+`*.iml`、`.last_image_uri` などビルド不要なものを除外する（`scripts/`/`cloudformation/` は
+兄弟ディレクトリのためコンテキスト外。除外指定は不要）。
 
 ## インフラストラクチャー（AWS）の詳細
 
@@ -286,25 +364,79 @@ Python 版と共通のネットワーク設計を踏襲する。
 ### CloudFormation スタック構成
 | ファイル           | スタック名                       | 作成リソース                                     |
 |----------------|-----------------------------|--------------------------------------------|
-| 01-network.yaml | `${ProjectName}-network`    | VPC、Public/Private サブネット（2AZ）、IGW、NAT GW（1AZ）、DynamoDB VPC Endpoint |
-| 02-ecr.yaml    | `${ProjectName}-ecr`        | ECR リポジトリ                                  |
-| 03-dynamodb.yaml | `${ProjectName}-dynamodb`   | DynamoDB テーブル（users、PK: email）              |
-| 04-ecs-alb.yaml | `${ProjectName}-ecs`        | ECS クラスター、タスク定義、Fargate サービス、ALB、TG         |
+| 01-network.yaml | `${ProjectName}-network`    | VPC、Public/Application/Private サブネット（2AZ、3層構成）、IGW、NAT GW（1AZ）、DynamoDB/S3 VPC Endpoint |
+| 02-ecr.yaml    | `${ProjectName}-ecr-<app>`（アプリごと） | ECR リポジトリ（`AppName` パラメータでアプリごとにデプロイ） |
+| 03-dynamodb.yaml | `${ProjectName}-dynamodb`   | DynamoDB テーブル（users、PK: email）。user-company-api 専用 |
+| 05-rds.yaml    | `${ProjectName}-rds`        | Aurora MySQL。user-company-api 専用             |
+| 06-shared-cluster-lb.yaml | `${ProjectName}-shared` | ECS クラスター、ALB（+デフォルトListener）、内部 NLB、SG群、TaskExecutionRole、OpenAPI 仕様書ステージング用 S3 バケット。**全アプリ共有** |
+| 07-ecs-user-company-api.yaml | `${ProjectName}-ecs-user-company-api` | TaskRole、タスク定義、Fargate サービス、NLB Listener(:80)/TargetGroup、ALB TargetGroup/ListenerRule |
+| 08-ecs-log-api.yaml | `${ProjectName}-ecs-log-api` | タスク定義、Fargate サービス、NLB Listener(:8081)/TargetGroup、API Gateway（REST API）+ VPC Link + Deployment/Stage（TaskRole なし、ALB は経由しない） |
 
 ### ネットワーク設計（01-network.yaml）
 * リージョン: **ap-northeast-1**（東京）
 * VPC CIDR: `10.20.0.0/16`
-* Public サブネット: 2AZ（1a / 1c）
-* Private サブネット: 2AZ（1a / 1c）
-* NAT Gateway: コスト削減のため **単一 AZ（1a）のみ**
-* DynamoDB へは Gateway 型 VPC Endpoint 経由で接続（NAT 課金回避）
+* 3 層構成（Public / Application / Private）、各層 2AZ（1a / 1c）、サブネットマスクは **/20**
+  * Public: `10.20.0.0/20`（1a）、`10.20.16.0/20`（1c）— ALB を配置
+  * Application: `10.20.32.0/20`（1a）、`10.20.48.0/20`（1c）— 内部 NLB を配置
+  * Private: `10.20.64.0/20`（1a）、`10.20.80.0/20`（1c）— ECS Fargate タスク / Aurora MySQL を配置
+* NAT Gateway: コスト削減のため **単一 AZ（1a）のみ**。Application / Private の各ルートテーブルから同じ NAT Gateway を利用
+* DynamoDB / S3 へは Gateway 型 VPC Endpoint 経由で接続（NAT 課金回避）。Private・Application 両方のルートテーブルに関連付け済み
 
-### ECS Fargate 設計（04-ecs-alb.yaml）
-* CPU/Memory: **256 / 512**（APM サイドカー不在のため最小構成）
-* コンテナポート: **8080**
+### ECS Fargate 設計（07-ecs-user-company-api.yaml / 08-ecs-log-api.yaml）
+* CPU/Memory: user-company-api は **512/1024**（CloudWatch Agent サイドカー常駐分を含む）、
+  log-api は **256/512**（サイドカーなしの最小構成）
+* コンテナポート: **8080**（全アプリ共通）
 * ヘルスチェックパス: `/health`
 * サービス: PrivateSubnet に配置、PublicIP 無効
-* ALB: PublicSubnet に配置、HTTP:80 → コンテナ 8080 フォワード
+
+### 通信経路
+Internet からの入口はアプリごとに異なる。**user-company-api は ALB 経由**、**log-api は API Gateway
+（REST API）経由**で、いずれも共有 NLB を通って ECS へ到達する。
+
+#### user-company-api（ALB → NLB → ECS）
+* `Internet → ALB（Public） → NLB（Application、internal） → ECS（Private）` の 3 ホップ構成。
+* **ALB**: Public Subnet に配置、internet-facing。HTTP:80 で受信し、パスごとにターゲットグループへ転送する
+  （`06-shared-cluster-lb.yaml` が所有。DefaultAction は 404 固定応答、アプリ別の ListenerRule は各アプリの
+  スタックが追加する。**log-api の ListenerRule は存在しない**＝ALB 経由では log-api に到達できない）。
+* **NLB**: Application Subnet に配置、**Scheme: internal**（インターネットからのアクセス不可、IGW ルートなし）。
+  **全アプリで共有**（`06-shared-cluster-lb.yaml` が所有）だが、L4 でパスベースルーティングができないため
+  **アプリごとに Listener のポートを分ける**（user-company-api: TCP:80、log-api: TCP:8081）。
+  各 Listener は対応するアプリのスタック（07/08）が追加し、そのアプリの ECS タスク
+  （コンテナポート 8080）へ転送する。
+* **ALB → NLB の接続方法**: ALB のターゲットグループには NLB を直接指定する仕組み（"nlb" ターゲットタイプ）が
+  存在しない。そのため NLB の `SubnetMappings` に `PrivateIPv4Address` で固定プライベート IP
+  （`NlbPrivateIp1a` = `10.20.32.10`、`NlbPrivateIp1c` = `10.20.48.10`、いずれも Application Subnet の
+  CIDR 内。`06-shared-cluster-lb.yaml` の Output として export）を割り当て、user-company-api の ALB
+  ターゲットグループ（`AlbToNlbTargetGroup`、IP タイプ）にその固定 IP を**NLB Listener(:80)**で
+  静的ターゲットとして登録することで疑似的に ALB → NLB の転送を実現する。
+* **セキュリティグループ**: ALB SG（0.0.0.0/0:80 許可）→ NLB SG（ALB SG からの :80 のみ許可）→
+  ECS SG（NLB SG からの :8080 のみ許可）の順に絞り込む。
+
+#### log-api（API Gateway → VPC Link → NLB → ECS）
+* `Internet → API Gateway（REST API） → VPC Link → NLB（Application、internal） → ECS（Private）` の
+  4 ホップ構成。**ALB は経由しない**（`08-ecs-log-api.yaml` は ALB ListenerRule を持たない）。
+* **VPC Link 採用理由（制約）**: REST API（v1）を使用する制約があるため、REST API 用の
+  `AWS::ApiGateway::VpcLink` を利用する。HTTP API（v2）の VpcLink と異なり、Subnet/SecurityGroup では
+  なく **NLB の ARN を直接 `TargetArns` に指定**するだけでよく、新規サブネット/ENI 管理は不要
+  （`08-ecs-log-api.yaml` の `VpcLink` リソース）。
+* **API 仕様と CloudFormation の連携**: `apps/log-api/openapi.yaml`（OpenAPI 3）を
+  `AWS::ApiGateway::RestApi` の `Body` プロパティに `Fn::Transform: AWS::Include` で読み込ませる。
+  Include は S3 上のファイル（`06-shared-cluster-lb.yaml` が所有する `OpenApiArtifactBucket` に
+  デプロイスクリプトがアップロードする）をテンプレート展開時に差し込むため、openapi.yaml 内で
+  `!Ref VpcLink` のように同一テンプレート内のリソースを直接参照できる。
+  * `AWS::ApiGateway::Deployment` は不変のスナップショットで、プロパティが変わらないと
+    CloudFormation が更新を検知できない。そのため openapi.yaml の sha256 ハッシュ
+    （デプロイスクリプトが計算）を `Deployment` の `Description` に埋め込み、**仕様書の内容が
+    変わるたびに新しい Deployment が作られる**ようにしている（`OpenApiSpecHash` パラメータ）。
+* **セキュリティグループ**: VPC Link は PrivateLink（VPC Endpoint Service）経由で NLB の ENI に
+  直接接続する。この経路のトラフィックは送信元 IP が呼び出し元（API Gateway）側 VPC のアドレスに
+  変換されるため、こちら側の VPC CIDR では絞り込めない（実測: `CidrIp: 10.20.0.0/16` では接続が
+  サイレントにドロップされ、API Gateway 側で 500 "internal error" になることを確認済み）。
+  そのため NLB SG の 8081 番ポートは `CidrIp: 0.0.0.0/0` としている。NLB は internal スキームで
+  IGW ルートを持たないため、これによりインターネットから到達可能になるわけではない。
+
+#### 共通
+* コンテナポート 8080 は全アプリ共通のため、ECS SG（NLB SG からの :8080 のみ許可）は全アプリで共有する。
 
 #### ECS タスクの環境変数
 | 変数名                  | 値                                |
@@ -319,10 +451,15 @@ Python 版と共通のネットワーク設計を踏襲する。
 * **TaskRole**: DynamoDB CRUD ポリシー（GetItem / PutItem / UpdateItem / DeleteItem / Query / Scan）
   * APM 追加フェーズでは `AWSXRayDaemonWriteAccess` / `CloudWatchAgentServerPolicy` を追加する
 
-#### ALB
+#### ALB（user-company-api）
 * スキーム: internet-facing
 * 認証不要
 * ヘルスチェック: `GET /health`、200 OK
+
+#### API Gateway（log-api）
+* REST API（EndpointConfiguration: REGIONAL）、認証不要
+* バックエンドは VPC Link 経由の NLB（HTTP_PROXY 統合）。ヘルスチェック自体は NLB Listener の
+  TargetGroup（`HealthCheckPath: /health`）が行う
 
 ### CloudFormation 命名規則
 * `ProjectName` パラメータのデフォルト: **`java-apm-sample`**
@@ -334,25 +471,31 @@ Python 版と共通のネットワーク設計を踏襲する。
 ### スクリプト一覧
 | ファイル                      | 役割                                          |
 |---------------------------|---------------------------------------------|
-| scripts/common.sh          | 共通環境変数・ヘルパ関数（他スクリプトから source）            |
-| scripts/build.sh           | Docker イメージビルド → ECR プッシュ                |
-| scripts/deploy-infra.sh    | CloudFormation スタック（01-03）をデプロイ          |
-| scripts/deploy-service.sh  | ECS スタック（04）をデプロイ → 強制デプロイ              |
-| scripts/deploy-all.sh      | 上記 3 スクリプトをまとめて実行                        |
-| scripts/delete-all.sh      | 全スタックを逆順で削除                               |
-| scripts/local-infra.sh     | ローカル開発用インフラ起動・停止（MySQL + DynamoDB Local） |
-| scripts/local-run.sh       | ローカル開発用 Spring Boot 起動（インフラ起動も含む）        |
+| scripts/common.sh          | 共通環境変数・ヘルパ関数（他スクリプトから source）。`APPS` 配列、`app_ecr_stack()`/`app_ecs_stack()`/`app_ecs_template()`/`app_dir()`/`validate_app_name()` を提供 |
+| scripts/build.sh `<app>`   | 指定アプリの Docker イメージビルド → そのアプリの ECR へプッシュ |
+| scripts/deploy-infra.sh    | 共有インフラ（01, 02×アプリ数, 03, 05, 06）をデプロイ    |
+| scripts/deploy-service.sh `<app>` | 指定アプリの ECS スタック（07 or 08）をデプロイ → 強制デプロイ |
+| scripts/deploy-all.sh      | deploy-infra.sh の後、全アプリで build.sh/deploy-service.sh をループ実行 |
+| scripts/delete-all.sh      | 全スタックを逆順で削除（全アプリの ECS/ECR スタックを含む） |
+| scripts/local-infra.sh     | user-company-api 用ローカルインフラ起動・停止（MySQL + DynamoDB Local） |
+| scripts/local-run.sh `<app>` | ローカル開発用 Spring Boot 起動（user-company-api はインフラ起動も含む） |
+
+`<app>` は `apps/` 配下のディレクトリ名（`user-company-api` または `log-api`）。アプリを追加する場合は
+`common.sh` の `APPS` 配列と `app_ecs_template()` の case 分岐を更新する。
 
 ### 共通設定（common.sh）
 ```bash
 export PROJECT_NAME="${PROJECT_NAME:-java-apm-sample}"
 export AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION:-ap-northeast-1}"
 
-# Stack 名
+# アプリ一覧（apps/ 配下のディレクトリ名と一致させる）
+APPS=(user-company-api log-api)
+
+# Stack 名（アプリ非依存の共有スタックのみ。アプリ別スタック名は app_ecr_stack()/app_ecs_stack() で解決する）
 export NETWORK_STACK="${PROJECT_NAME}-network"
-export ECR_STACK="${PROJECT_NAME}-ecr"
 export DYNAMODB_STACK="${PROJECT_NAME}-dynamodb"
-export ECS_STACK="${PROJECT_NAME}-ecs"
+export RDS_STACK="${PROJECT_NAME}-rds"
+export SHARED_STACK="${PROJECT_NAME}-shared"
 ```
 
 ### AWS 認証
@@ -360,14 +503,23 @@ export ECS_STACK="${PROJECT_NAME}-ecs"
 スクリプト起動時に未設定の場合はエラー終了する（`: "${AWS_ACCESS_KEY_ID:?...}"` ガード）。
 
 ### ビルドスクリプト（build.sh）の方針
+* 第1引数 `<app>` 必須（`validate_app_name` で検証）。ビルドコンテキストは `apps/<app>/`
 * `IMAGE_TAG`: `git rev-parse --short HEAD` を使用（取得できない場合は `date +%Y%m%d%H%M%S`）
 * `--platform linux/amd64` で明示的に AMD64 向けにビルドする（ECS Fargate X86_64 対応）
-* ビルド完了後、イメージ URI を `.last_image_uri` に保存する
+* ビルド完了後、イメージ URI を `apps/<app>/.last_image_uri` に保存する
 
 ### デプロイスクリプト（deploy-service.sh）の方針
-* `IMAGE_URI` が未指定の場合は `.last_image_uri` から読み込む
+* 第1引数 `<app>` 必須。`<app>` に応じてテンプレート（07/08）と追加パラメータ
+  （user-company-api のみ `MySqlUsername`）を出し分ける
+* `IMAGE_URI` が未指定の場合は `apps/<app>/.last_image_uri` から読み込む
+* **log-api のみ**: CloudFormation デプロイの前に `apps/log-api/openapi.yaml` を
+  共有スタックの `OpenApiBucketName`（S3）へアップロードし、そのファイルの sha256 を
+  `OpenApiSpecHash` パラメータとして渡す（`AWS::ApiGateway::Deployment` の更新検知に使う）。
+  NLB の DNS 名（`NlbDnsName`）も共有スタックの Output から取得して渡す
 * CloudFormation デプロイ後、イメージのみ更新の場合に変更セットが空になる問題を
   `aws ecs update-service --force-new-deployment` で回避する
+* ECS クラスター名・ALB DNS 名は共有スタック（`SHARED_STACK`）の Output から、
+  ECS サービス名・（log-api の場合）API Gateway invoke URL はアプリ別スタックの Output から取得する
 
 ## APM 追加フェーズ（後日実装）
 現フェーズでは以下を実装しない。後フェーズで追加予定。

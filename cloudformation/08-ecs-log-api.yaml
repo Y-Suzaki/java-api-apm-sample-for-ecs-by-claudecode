@@ -1,0 +1,206 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  ECS Fargate Service stack for log-api (a minimal sample API that accepts JSON
+  logs and prints them to stdout). Imports Exports from 06-shared-cluster-lb.yaml
+  (ECS Cluster / NLB / SG / OpenAPI staging bucket). APM (ADOT/X-Ray) is
+  intentionally not included, since this app exists as a minimal sample of
+  application separation.
+  The NLB itself is shared, but this stack adds a Listener dedicated to this app on
+  port 8081 (user-company-api already uses port 80, so each app gets its own NLB
+  listener port to keep traffic separated).
+  Unlike user-company-api, log-api is NOT routed through the shared ALB. Instead,
+  this stack owns an API Gateway REST API that reaches the NLB directly via a
+  VPC Link (Internet -> API Gateway -> VPC Link -> NLB -> ECS). The REST API's
+  Body is imported from apps/log-api/openapi.yaml, staged in S3 and pulled in via
+  Fn::Transform (AWS::Include), so editing that file and redeploying updates the
+  API Gateway definition automatically.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: java-apm-sample
+  ImageUri:
+    Type: String
+    Description: >
+      ECR image URI with tag. e.g. 123456789.dkr.ecr.ap-northeast-1.amazonaws.com/java-apm-sample-log-api:abc1234
+  DesiredCount:
+    Type: Number
+    Default: 1
+    Description: Number of ECS tasks
+  OpenApiBucketName:
+    Type: String
+    Description: >
+      Name of the S3 bucket (06-shared-cluster-lb.yaml OpenApiBucketName Output) that
+      the deploy script uploads apps/log-api/openapi.yaml into before this stack deploys.
+  OpenApiObjectKey:
+    Type: String
+    Default: openapi/log-api.yaml
+    Description: S3 key of the staged openapi.yaml within OpenApiBucketName.
+  OpenApiSpecHash:
+    Type: String
+    Description: >
+      sha256 of apps/log-api/openapi.yaml, passed by the deploy script. Changing this
+      value forces AWS::ApiGateway::Deployment to replace itself (deployments are
+      immutable snapshots in API Gateway), so a spec-only change is picked up on deploy.
+  NlbDnsName:
+    Type: String
+    Description: >
+      DNS name of the shared internal NLB (06-shared-cluster-lb.yaml NLBDnsName Output).
+      Used as the backend host in openapi.yaml's integration URIs.
+
+Resources:
+
+  # ── CloudWatch Logs ──────────────────────────────────────────────────────
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /ecs/${ProjectName}-log-api
+      RetentionInDays: 30
+
+  # ── ECS Task Definition ──────────────────────────────────────────────────
+  # AWS API を呼び出さない（DynamoDB/RDS/Secrets Manager 等への依存なし）ため TaskRole は付与しない。
+  # サイドカーなしの最小構成。
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub ${ProjectName}-log-api-task
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      Cpu: 256
+      Memory: 512
+      ExecutionRoleArn: !ImportValue
+        Fn::Sub: ${ProjectName}-task-execution-role-arn
+      ContainerDefinitions:
+        - Name: !Sub ${ProjectName}-log-api-container
+          Image: !Ref ImageUri
+          Essential: true
+          PortMappings:
+            - ContainerPort: 8080
+              Protocol: tcp
+          Environment:
+            - Name: APP_ENV
+              Value: prod
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref LogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: api
+
+  # ── NLB ターゲットグループ + Listener（このアプリ専用。ポート 8081） ───────
+  # Name は明示指定しない（CloudFormation が自動生成する）。
+  # TargetGroup の Name は 32 文字制限があり、${ProjectName}-log-api-... は
+  # ProjectName 次第で容易に超過するため、論理 ID から一意な名前を自動生成させる。
+  NlbTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Protocol: TCP
+      Port: 8080
+      VpcId: !ImportValue
+        Fn::Sub: ${ProjectName}-vpc-id
+      TargetType: ip
+      HealthCheckPath: /health
+      HealthCheckProtocol: HTTP
+      HealthCheckIntervalSeconds: 30
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+
+  NLBListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !ImportValue
+        Fn::Sub: ${ProjectName}-nlb-arn
+      Protocol: TCP
+      Port: 8081
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref NlbTargetGroup
+
+  # ── API Gateway REST API（このアプリ専用。Internet からの唯一の入口） ──────
+  # NLB を PrivateLink 経由のターゲットとする VPC Link。REST API の VpcLink は
+  # サブネット/SG ではなく NLB の ARN を直接指定する（HTTP API の VpcLink とは異なる）。
+  VpcLink:
+    Type: AWS::ApiGateway::VpcLink
+    Properties:
+      Name: !Sub ${ProjectName}-log-api-vpclink
+      TargetArns:
+        - !ImportValue
+          Fn::Sub: ${ProjectName}-nlb-arn
+
+  # Body は apps/log-api/openapi.yaml を S3 経由で読み込む（Fn::Transform: AWS::Include）。
+  # openapi.yaml 内の connectionId/uri は、この Include 展開後に同一テンプレート内の
+  # VpcLink / NlbDnsName パラメータとして解決される。
+  RestApi:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: !Sub ${ProjectName}-log-api
+      EndpointConfiguration:
+        Types:
+          - REGIONAL
+      Body:
+        Fn::Transform:
+          Name: AWS::Include
+          Parameters:
+            Location: !Sub s3://${OpenApiBucketName}/${OpenApiObjectKey}
+
+  # AWS::ApiGateway::Deployment はプロパティが同一だと更新検知されず、
+  # openapi.yaml だけを変更してもデプロイに反映されない。Description に spec のハッシュを
+  # 含めることで、ハッシュが変わるたびに新しい Deployment が作られる（API Gateway の
+  # Deployment は不変のスナップショットなので、変更は常に置き換えとして扱われる）。
+  ApiDeployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn: RestApi
+    Properties:
+      RestApiId: !Ref RestApi
+      Description: !Sub Deployment for openapi.yaml sha256:${OpenApiSpecHash}
+
+  ApiStage:
+    Type: AWS::ApiGateway::Stage
+    Properties:
+      RestApiId: !Ref RestApi
+      DeploymentId: !Ref ApiDeployment
+      StageName: prod
+
+  # ── ECS Service ──────────────────────────────────────────────────────────
+  ECSService:
+    Type: AWS::ECS::Service
+    DependsOn: NLBListener
+    Properties:
+      ServiceName: !Sub ${ProjectName}-log-api-service
+      Cluster: !ImportValue
+        Fn::Sub: ${ProjectName}-ecs-cluster-name
+      TaskDefinition: !Ref TaskDefinition
+      LaunchType: FARGATE
+      DesiredCount: !Ref DesiredCount
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 0
+        MaximumPercent: 100
+      # Spring Boot 起動時間を見込んで ALB ヘルスチェック失敗を一定時間無視する。
+      HealthCheckGracePeriodSeconds: 120
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets:
+            - !ImportValue
+              Fn::Sub: ${ProjectName}-private-subnet-1a-id
+            - !ImportValue
+              Fn::Sub: ${ProjectName}-private-subnet-1c-id
+          SecurityGroups:
+            - !ImportValue
+              Fn::Sub: ${ProjectName}-ecs-sg-id
+      LoadBalancers:
+        - ContainerName: !Sub ${ProjectName}-log-api-container
+          ContainerPort: 8080
+          TargetGroupArn: !Ref NlbTargetGroup
+
+Outputs:
+  ECSServiceName:
+    Value: !GetAtt ECSService.Name
+    Export:
+      Name: !Sub ${ProjectName}-log-api-ecs-service-name
+
+  ApiInvokeUrl:
+    Value: !Sub https://${RestApi}.execute-api.${AWS::Region}.amazonaws.com/${ApiStage}
+    Export:
+      Name: !Sub ${ProjectName}-log-api-invoke-url

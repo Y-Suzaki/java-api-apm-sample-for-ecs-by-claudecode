@@ -1,7 +1,9 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >
-  ECS Fargate service + ALB stack.
-  Imports VPC/subnet IDs from network stack and DynamoDB ARN from dynamodb stack.
+  ECS Fargate Service stack for user-company-api.
+  Imports Exports from 06-shared-cluster-lb.yaml (ECS Cluster / ALB / NLB / SG) and
+  from the DynamoDB / RDS stacks. The NLB itself is shared, but this stack creates
+  a Listener (port 80) and target group dedicated to this app.
 
 Parameters:
   ProjectName:
@@ -10,7 +12,7 @@ Parameters:
   ImageUri:
     Type: String
     Description: >
-      ECR image URI with tag. e.g. 123456789.dkr.ecr.ap-northeast-1.amazonaws.com/java-apm-sample:abc1234
+      ECR image URI with tag. e.g. 123456789.dkr.ecr.ap-northeast-1.amazonaws.com/java-apm-sample-user-company-api:abc1234
   UsersTableName:
     Type: String
     Default: users
@@ -26,49 +28,7 @@ Parameters:
 
 Resources:
 
-  # ── Security Groups ──────────────────────────────────────────────────────
-  ALBSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupName: !Sub ${ProjectName}-alb-sg
-      GroupDescription: Allow HTTP from anywhere to ALB
-      VpcId: !ImportValue
-        Fn::Sub: ${ProjectName}-vpc-id
-      SecurityGroupIngress:
-        - IpProtocol: tcp
-          FromPort: 80
-          ToPort: 80
-          CidrIp: 0.0.0.0/0
-
-  ECSSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupName: !Sub ${ProjectName}-ecs-sg
-      GroupDescription: Allow port 8080 from ALB only
-      VpcId: !ImportValue
-        Fn::Sub: ${ProjectName}-vpc-id
-      SecurityGroupIngress:
-        - IpProtocol: tcp
-          FromPort: 8080
-          ToPort: 8080
-          SourceSecurityGroupId: !Ref ALBSecurityGroup
-
-  # ── IAM Roles ────────────────────────────────────────────────────────────
-  # TaskExecutionRole: ECS エージェントが ECR からイメージを pull し、CloudWatch Logs に書き込むための権限
-  TaskExecutionRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: !Sub ${ProjectName}-task-execution-role
-      AssumeRolePolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: ecs-tasks.amazonaws.com
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
-
+  # ── IAM Role ─────────────────────────────────────────────────────────────
   # TaskRole: コンテナ内アプリと CloudWatch Agent サイドカーが使用する権限
   # - DynamoDB CRUD: アプリコンテナが users テーブルにアクセスするための権限
   # - AWSXRayDaemonWriteAccess: CloudWatch Agent が X-Ray にトレースを送信するための権限
@@ -79,7 +39,7 @@ Resources:
   TaskRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub ${ProjectName}-task-role
+      RoleName: !Sub ${ProjectName}-user-company-api-task-role
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -166,28 +126,24 @@ Resources:
         ResourceARN: "*"
         Version: 1
 
-  # ── ECS ──────────────────────────────────────────────────────────────────
-  ECSCluster:
-    Type: AWS::ECS::Cluster
-    Properties:
-      ClusterName: !Sub ${ProjectName}-cluster
-
+  # ── ECS Task Definition ──────────────────────────────────────────────────
   TaskDefinition:
     Type: AWS::ECS::TaskDefinition
     Properties:
-      Family: !Sub ${ProjectName}-task
+      Family: !Sub ${ProjectName}-user-company-api-task
       NetworkMode: awsvpc
       RequiresCompatibilities:
         - FARGATE
-      # CloudWatch Agent サイドカー追加に伴い 512/1024 に引き上げ（サイドカーが常駐 ~50MiB 消費するため）
+      # CloudWatch Agent サイドカー分を含めて 512/1024（サイドカーが常駐 ~50MiB 消費するため）
       Cpu: 512
       Memory: 1024
-      ExecutionRoleArn: !GetAtt TaskExecutionRole.Arn
+      ExecutionRoleArn: !ImportValue
+        Fn::Sub: ${ProjectName}-task-execution-role-arn
       TaskRoleArn: !GetAtt TaskRole.Arn
       ContainerDefinitions:
 
         # ----- アプリケーションコンテナ -----
-        - Name: !Sub ${ProjectName}-container
+        - Name: !Sub ${ProjectName}-user-company-api-container
           Image: !Ref ImageUri
           Essential: true
           PortMappings:
@@ -292,26 +248,16 @@ Resources:
               awslogs-region: !Ref AWS::Region
               awslogs-stream-prefix: cwagent
 
-  # ── ALB ──────────────────────────────────────────────────────────────────
-  ALB:
-    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
-    Properties:
-      Name: !Sub ${ProjectName}-alb
-      Scheme: internet-facing
-      Type: application
-      Subnets:
-        - !ImportValue
-          Fn::Sub: ${ProjectName}-public-subnet-1a-id
-        - !ImportValue
-          Fn::Sub: ${ProjectName}-public-subnet-1c-id
-      SecurityGroups:
-        - !Ref ALBSecurityGroup
-
-  TargetGroup:
+  # ── NLB ターゲットグループ + Listener（このアプリ専用。ポート 80） ─────────
+  # NLB のターゲットグループはヘルスチェックタイムアウトをカスタマイズできない
+  # （interval 30s の場合は固定 10s）ため HealthCheckTimeoutSeconds は指定しない。
+  # Name は明示指定しない（CloudFormation が自動生成する）。
+  # TargetGroup の Name は 32 文字制限があり、${ProjectName}-user-company-api-... は
+  # 容易に超過するため、論理 ID から一意な名前を自動生成させる。
+  NlbTargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
-      Name: !Sub ${ProjectName}-tg
-      Protocol: HTTP
+      Protocol: TCP
       Port: 8080
       VpcId: !ImportValue
         Fn::Sub: ${ProjectName}-vpc-id
@@ -319,28 +265,53 @@ Resources:
       HealthCheckPath: /health
       HealthCheckProtocol: HTTP
       HealthCheckIntervalSeconds: 30
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+
+  NLBListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !ImportValue
+        Fn::Sub: ${ProjectName}-nlb-arn
+      Protocol: TCP
+      Port: 80
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref NlbTargetGroup
+
+  # ── ALB → NLB 転送用ターゲットグループ + ListenerRule（このアプリ専用） ────
+  # ALB のターゲットグループには NLB を直接指定する仕組み（"nlb" ターゲットタイプ）が
+  # 存在しないため、NLB の各 AZ ノードに割り当てた固定プライベート IP を静的ターゲットとして
+  # 登録し、ALB → NLB（ポート 80、このアプリの NLBListener）への転送を実現する。
+  # Name は明示指定しない（CloudFormation が自動生成する。理由は NlbTargetGroup と同じ）。
+  AlbToNlbTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Protocol: HTTP
+      Port: 80
+      VpcId: !ImportValue
+        Fn::Sub: ${ProjectName}-vpc-id
+      TargetType: ip
+      Targets:
+        - Id: !ImportValue
+            Fn::Sub: ${ProjectName}-nlb-private-ip-1a
+          Port: 80
+        - Id: !ImportValue
+            Fn::Sub: ${ProjectName}-nlb-private-ip-1c
+          Port: 80
+      HealthCheckPath: /health
+      HealthCheckProtocol: HTTP
+      HealthCheckIntervalSeconds: 30
       HealthCheckTimeoutSeconds: 5
       HealthyThresholdCount: 2
       UnhealthyThresholdCount: 3
 
-  ALBListener:
-    Type: AWS::ElasticLoadBalancingV2::Listener
-    Properties:
-      LoadBalancerArn: !Ref ALB
-      Protocol: HTTP
-      Port: 80
-      DefaultActions:
-        - Type: fixed-response
-          FixedResponseConfig:
-            StatusCode: "404"
-            ContentType: application/json
-            MessageBody: '{"error":"Not Found"}'
-
-  # /health, /configuration → TG へ転送
+  # /health, /configuration → NLB 経由で ECS へ転送
   ALBListenerRuleGeneral:
     Type: AWS::ElasticLoadBalancingV2::ListenerRule
     Properties:
-      ListenerArn: !Ref ALBListener
+      ListenerArn: !ImportValue
+        Fn::Sub: ${ProjectName}-alb-listener-arn
       Priority: 1
       Conditions:
         - Field: path-pattern
@@ -349,13 +320,14 @@ Resources:
             - /configuration
       Actions:
         - Type: forward
-          TargetGroupArn: !Ref TargetGroup
+          TargetGroupArn: !Ref AlbToNlbTargetGroup
 
-  # /users, /users/* → TG へ転送
+  # /users, /users/* → NLB 経由で ECS へ転送
   ALBListenerRuleUsers:
     Type: AWS::ElasticLoadBalancingV2::ListenerRule
     Properties:
-      ListenerArn: !Ref ALBListener
+      ListenerArn: !ImportValue
+        Fn::Sub: ${ProjectName}-alb-listener-arn
       Priority: 2
       Conditions:
         - Field: path-pattern
@@ -364,13 +336,14 @@ Resources:
             - /users/*
       Actions:
         - Type: forward
-          TargetGroupArn: !Ref TargetGroup
+          TargetGroupArn: !Ref AlbToNlbTargetGroup
 
-  # /companies, /companies/* → TG へ転送
+  # /companies, /companies/* → NLB 経由で ECS へ転送（/companies/*/subsidiaries もこのパターンに含まれる）
   ALBListenerRuleCompanies:
     Type: AWS::ElasticLoadBalancingV2::ListenerRule
     Properties:
-      ListenerArn: !Ref ALBListener
+      ListenerArn: !ImportValue
+        Fn::Sub: ${ProjectName}-alb-listener-arn
       Priority: 3
       Conditions:
         - Field: path-pattern
@@ -379,15 +352,16 @@ Resources:
             - /companies/*
       Actions:
         - Type: forward
-          TargetGroupArn: !Ref TargetGroup
+          TargetGroupArn: !Ref AlbToNlbTargetGroup
 
   # ── ECS Service ──────────────────────────────────────────────────────────
   ECSService:
     Type: AWS::ECS::Service
-    DependsOn: ALBListener
+    DependsOn: NLBListener
     Properties:
-      ServiceName: !Sub ${ProjectName}-service
-      Cluster: !Ref ECSCluster
+      ServiceName: !Sub ${ProjectName}-user-company-api-service
+      Cluster: !ImportValue
+        Fn::Sub: ${ProjectName}-ecs-cluster-name
       TaskDefinition: !Ref TaskDefinition
       LaunchType: FARGATE
       DesiredCount: !Ref DesiredCount
@@ -407,24 +381,15 @@ Resources:
             - !ImportValue
               Fn::Sub: ${ProjectName}-private-subnet-1c-id
           SecurityGroups:
-            - !Ref ECSSecurityGroup
+            - !ImportValue
+              Fn::Sub: ${ProjectName}-ecs-sg-id
       LoadBalancers:
-        - ContainerName: !Sub ${ProjectName}-container
+        - ContainerName: !Sub ${ProjectName}-user-company-api-container
           ContainerPort: 8080
-          TargetGroupArn: !Ref TargetGroup
+          TargetGroupArn: !Ref NlbTargetGroup
 
 Outputs:
-  ALBDnsName:
-    Value: !GetAtt ALB.DNSName
-    Export:
-      Name: !Sub ${ProjectName}-alb-dns
-
-  ECSClusterName:
-    Value: !Ref ECSCluster
-    Export:
-      Name: !Sub ${ProjectName}-ecs-cluster-name
-
   ECSServiceName:
     Value: !GetAtt ECSService.Name
     Export:
-      Name: !Sub ${ProjectName}-ecs-service-name
+      Name: !Sub ${ProjectName}-user-company-api-ecs-service-name
