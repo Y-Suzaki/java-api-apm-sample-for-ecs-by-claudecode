@@ -1,7 +1,8 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >
   Shared ECS Cluster + ALB + internal NLB stack, shared by all application-specific
-  ECS service stacks (07-ecs-*.yaml, 08-ecs-*.yaml, ...).
+  ECS service stacks (07-ecs-log-api.yaml, 09-ecs-user-company-api.yaml, ...) and the
+  API Gateway stacks fronting them (08-apigw-log-api-internal.yaml, ...).
   Imports VPC/subnet IDs from the network stack.
   Traffic path (user-company-api): Internet -> ALB (Public) -> NLB (Application, internal)
   -> ECS (Private).
@@ -10,7 +11,8 @@ Description: >
   Since NLB is L4 and cannot do path-based routing, each app gets its own NLB
   listener port to keep traffic separated (the NLB Listener itself is added by
   each app's ECS stack, not here).
-  Also owns an S3 bucket used to stage OpenAPI spec files for API Gateway Body imports.
+  Also owns an S3 bucket for OpenAPI spec staging and the ALB's mTLS CA bundle.
+  ALB mTLS is opt-in via AlbCertificateArn (see ALBListener; empty by default).
 
 Parameters:
   ProjectName:
@@ -30,6 +32,19 @@ Parameters:
     Description: >
       Static private IP for the internal NLB node in Application Subnet 1c.
       Must be within ApplicationSubnet1c CIDR (10.20.48.0/20).
+  AlbCertificateArn:
+    Type: String
+    Default: ''
+    Description: >
+      ACM certificate ARN for the ALB HTTPS listener (self-signed server cert imported
+      via scripts/deploy-mtls.sh). Empty (default) keeps the ALB on plain HTTP:80 with
+      no mTLS, which is required for the very first deploy since the ALB DNS name
+      (used as the server cert CN) doesn't exist yet. Once set, ALBListener switches to
+      HTTPS:443 with mTLS (Verify mode against ALBTrustStore) and an HTTP->HTTPS
+      redirect listener is added.
+
+Conditions:
+  HasAlbCertificate: !Not [!Equals [!Ref AlbCertificateArn, '']]
 
 Resources:
 
@@ -38,7 +53,9 @@ Resources:
     Type: AWS::EC2::SecurityGroup
     Properties:
       GroupName: !Sub ${ProjectName}-alb-sg
-      GroupDescription: Allow HTTP from anywhere to ALB
+      GroupDescription: >-
+        Allow HTTP from anywhere to ALB (plain, or the HTTPS redirect once mTLS is
+        enabled); HTTPS (443) is only opened once AlbCertificateArn is set
       VpcId: !ImportValue
         Fn::Sub: ${ProjectName}-vpc-id
       SecurityGroupIngress:
@@ -46,6 +63,13 @@ Resources:
           FromPort: 80
           ToPort: 80
           CidrIp: 0.0.0.0/0
+        - !If
+          - HasAlbCertificate
+          - IpProtocol: tcp
+            FromPort: 443
+            ToPort: 443
+            CidrIp: 0.0.0.0/0
+          - !Ref AWS::NoValue
 
   NLBSecurityGroup:
     Type: AWS::EC2::SecurityGroup
@@ -134,20 +158,61 @@ Resources:
       SecurityGroups:
         - !Ref ALBSecurityGroup
 
+  # mTLS 用 Trust Store（AlbCertificateArn 設定時のみ作成）。
+  # CA バンドルは OpenApiArtifactBucket（全アプリ共有のアーティファクト用 S3 バケット）に
+  # scripts/deploy-mtls.sh が事前アップロードする。TrustStore は S3 オブジェクトが存在しないと
+  # 作成できないため、AlbCertificateArn が空（= CA バンドル未アップロード）の間は作成しない。
+  ALBTrustStore:
+    Type: AWS::ElasticLoadBalancingV2::TrustStore
+    Condition: HasAlbCertificate
+    Properties:
+      Name: !Sub ${ProjectName}-mtls-ts
+      CaCertificatesBundleS3Bucket: !Ref OpenApiArtifactBucket
+      CaCertificatesBundleS3Key: mtls/root-ca-bundle.pem
+
   # デフォルトアクション: どのアプリの ListenerRule にもマッチしないパスは 404 を返す。
   # 各アプリの ListenerRule（path-pattern による振り分け）はアプリ別スタック側で追加する。
+  # AlbCertificateArn が空の間は HTTP:80（mTLS なし）。設定されると HTTPS:443 + mTLS(Verify) に
+  # 切り替わる（論理 ID・Export 名は変えず、アプリ別スタックの ListenerRule 定義は無変更で済む）。
   ALBListener:
     Type: AWS::ElasticLoadBalancingV2::Listener
     Properties:
       LoadBalancerArn: !Ref ALB
-      Protocol: HTTP
-      Port: 80
+      Protocol: !If [HasAlbCertificate, HTTPS, HTTP]
+      Port: !If [HasAlbCertificate, 443, 80]
+      Certificates: !If
+        - HasAlbCertificate
+        - - CertificateArn: !Ref AlbCertificateArn
+        - !Ref AWS::NoValue
+      SslPolicy: !If [HasAlbCertificate, ELBSecurityPolicy-TLS13-1-2-2021-06, !Ref AWS::NoValue]
+      MutualAuthentication: !If
+        - HasAlbCertificate
+        - Mode: verify
+          TrustStoreArn: !Ref ALBTrustStore
+          IgnoreClientCertificateExpiry: false
+        - !Ref AWS::NoValue
       DefaultActions:
         - Type: fixed-response
           FixedResponseConfig:
             StatusCode: "404"
             ContentType: application/json
             MessageBody: '{"error":"Not Found"}'
+
+  # mTLS 有効時のみ追加する HTTP:80 -> HTTPS:443 リダイレクト専用リスナー。
+  # ALBListener が 80 から 443 に移るため、80 番を未使用のまま放置しないための入口。
+  ALBListenerHttpRedirect:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Condition: HasAlbCertificate
+    Properties:
+      LoadBalancerArn: !Ref ALB
+      Protocol: HTTP
+      Port: 80
+      DefaultActions:
+        - Type: redirect
+          RedirectConfig:
+            Protocol: HTTPS
+            Port: '443'
+            StatusCode: HTTP_301
 
   # ── NLB（Application Subnet、internal。インターネットからのアクセス不可） ──
   # 全アプリで共有する。NLB は L4 でパスベースルーティングができないため、
@@ -167,6 +232,18 @@ Resources:
           PrivateIPv4Address: !Ref NlbPrivateIp1c
       SecurityGroups:
         - !Ref NLBSecurityGroup
+
+  # ── API Gateway VPC Link（NLB 全体で共有、単一） ────────────────────────────
+  # NLB は VPC Endpoint Service（VpcLink の実体）を1つしか持てない制約があるため、
+  # VpcLink は NLB 自体の性質（NLBArn 等と同列）としてここで一度だけ作る。
+  # REST API 経由でこの NLB にアクセスしたいアプリのスタック（log-api の 07/08 等）は、
+  # ここから VpcLinkId を Import して使う。
+  VpcLink:
+    Type: AWS::ApiGateway::VpcLink
+    Properties:
+      Name: !Sub ${ProjectName}-nlb-vpclink
+      TargetArns:
+        - !Ref NLB
 
 Outputs:
   ALBSecurityGroupId:
@@ -204,6 +281,9 @@ Outputs:
     Export:
       Name: !Sub ${ProjectName}-alb-dns
 
+  # HTTP:80（mTLS 未設定時）または HTTPS:443 + mTLS(Verify)（AlbCertificateArn 設定時）の
+  # どちらか。各アプリの ListenerRule はこの Export に対して追加するため、切り替わっても
+  # アプリ別スタック側の変更は不要。
   ALBListenerArn:
     Value: !Ref ALBListener
     Export:
@@ -233,3 +313,8 @@ Outputs:
     Value: !Ref OpenApiArtifactBucket
     Export:
       Name: !Sub ${ProjectName}-openapi-bucket-name
+
+  VpcLinkId:
+    Value: !Ref VpcLink
+    Export:
+      Name: !Sub ${ProjectName}-vpclink-id

@@ -17,7 +17,8 @@ paths:
           Fn::Sub: "http://${NlbDnsName}:8081/health"
         connectionType: VPC_LINK
         connectionId:
-          Ref: VpcLink
+          Fn::ImportValue:
+            Fn::Sub: ${ProjectName}-vpclink-id
         passthroughBehavior: WHEN_NO_MATCH
   /logs:
     post:
@@ -41,5 +42,6 @@ paths:
           Fn::Sub: "http://${NlbDnsName}:8081/logs"
         connectionType: VPC_LINK
         connectionId:
-          Ref: VpcLink
+          Fn::ImportValue:
+            Fn::Sub: ${ProjectName}-vpclink-id
         passthroughBehavior: WHEN_NO_MATCH

@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # 全 CloudFormation スタックを逆順で削除する。
 #
-# 削除順: ECS(全アプリ) → 共有(ECS Cluster/ALB/NLB) → RDS → DynamoDB → ECR(全アプリ) → Network
+# 削除順: ECS(user-company-api) → 内部 API Gateway(log-api用) → ECS(log-api) →
+#         共有(ECS Cluster/ALB/NLB) → RDS → DynamoDB → ECR(全アプリ) → Network
 # ※ DynamoDB テーブルのデータ・RDS インスタンスも削除される。
 # ※ ECR のイメージは stack 削除前に一括削除する（残存イメージがあると DeleteRepository が失敗するため）。
+# ※ 共有スタックの OpenApiArtifactBucket（S3）も削除前に空にする（残存オブジェクトがあると DeleteBucket が失敗するため）。
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -81,12 +83,34 @@ delete_ecr_images() {
   log_success "ECR images deleted"
 }
 
+# 06 (共有スタック) が持つ OpenApiArtifactBucket を空にする。
+# S3 バケットは中身が残っていると CloudFormation の DeleteBucket が失敗する
+# （バージョニングは有効化していないので、オブジェクトの通常削除のみで空にできる）。
+empty_s3_bucket() {
+  local shared_stack_name="$1"
+  local bucket_name
+  bucket_name=$(aws cloudformation describe-stacks \
+    --stack-name "${shared_stack_name}" \
+    --region "${AWS_DEFAULT_REGION}" \
+    --query 'Stacks[0].Outputs[?OutputKey==`OpenApiBucketName`].OutputValue' \
+    --output text 2>/dev/null || true)
+
+  [[ -z "${bucket_name}" || "${bucket_name}" == "None" ]] && return
+
+  log "Emptying S3 bucket: ${bucket_name}"
+  aws s3 rm "s3://${bucket_name}" --recursive --region "${AWS_DEFAULT_REGION}" >/dev/null
+  log_success "S3 bucket emptied: ${bucket_name}"
+}
+
 # 逆順で削除する（依存関係の逆順）
-# ECS(07/08) は 05 (RDS) / 03 (DynamoDB) / 06 (共有基盤) に依存するため最初に削除
-for app in "${APPS[@]}"; do
-  delete_stack "$(app_ecs_stack "${app}")"
-done
+# ECS(07/09) は 05 (RDS) / 03 (DynamoDB) / 06 (共有基盤) に依存するため最初に削除。
+# 09 (user-company-api) は 08 (log-api 用 Private API Gateway) の Export を Import しているため、
+# 08 より先に削除する必要がある。08 と 07 (log-api 本体) の間には依存関係がないため順不同。
+delete_stack "$(app_ecs_stack "user-company-api")"
+delete_stack "${INTERNAL_APIGW_STACK}"
+delete_stack "$(app_ecs_stack "log-api")"
 # 06 (共有 ECS Cluster/ALB/NLB) は 01 (Network) に依存するため ECS 削除後に削除
+empty_s3_bucket "${SHARED_STACK}"
 delete_stack "${SHARED_STACK}"
 # 05 (RDS) は 01 (Network) に依存するため ECS 削除後に削除
 delete_stack "${RDS_STACK}"

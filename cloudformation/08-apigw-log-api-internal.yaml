@@ -1,0 +1,137 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Private (VPC-only) API Gateway in front of log-api, for internal callers
+  (currently: user-company-api ECS tasks). A second front door onto the same
+  log-api backend that 07-ecs-log-api.yaml exposes publicly - does not touch
+  log-api's ECS service, NLB Listener (:8081) or TargetGroup.
+  Path: user-company-api ECS -> Interface VPC Endpoint (execute-api) ->
+  Private REST API Gateway -> VPC Link -> shared NLB -> log-api ECS.
+  Reuses apps/log-api/openapi.yaml as-is for the Body (same Fn::Include-from-S3
+  pattern as 07). The VPC Link it references is imported directly (via
+  Fn::ImportValue inside openapi.yaml) from 06-shared-cluster-lb.yaml, which owns
+  the single VpcLink for the shared NLB (an NLB can back only one VPC Endpoint
+  Service, so the VpcLink can't be owned by any one app stack) - this stack
+  therefore has no dependency on 07 at all, only on 06.
+  Access control is network-only (VPC Endpoint resource policy) - no SigV4/IAM
+  signing required, consistent with the "no auth" design used elsewhere.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: java-apm-sample
+  OpenApiBucketName:
+    Type: String
+    Description: >
+      Name of the S3 bucket (06-shared-cluster-lb.yaml OpenApiBucketName Output).
+      Reuses the apps/log-api/openapi.yaml object already staged there by
+      deploy-service.sh's log-api branch.
+  OpenApiObjectKey:
+    Type: String
+    Default: openapi/log-api.yaml
+    Description: S3 key of the staged openapi.yaml within OpenApiBucketName.
+  OpenApiSpecHash:
+    Type: String
+    Description: >
+      sha256 of apps/log-api/openapi.yaml, passed by the deploy script. Changing this
+      value forces AWS::ApiGateway::Deployment to replace itself (deployments are
+      immutable snapshots in API Gateway), so a spec-only change is picked up on deploy.
+  NlbDnsName:
+    Type: String
+    Description: >
+      DNS name of the shared internal NLB (06-shared-cluster-lb.yaml NLBDnsName Output).
+      Used as the backend host in openapi.yaml's integration URIs (same value 07 passes).
+
+Resources:
+
+  # ── Security Group（execute-api Interface VPC Endpoint 用） ────────────────
+  # ECSSecurityGroup は全アプリ共有のため user-company-api 以外（log-api 自身等）からの
+  # 到達も許可されるが、呼ばれないだけで実害はない。
+  VpcEndpointSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub ${ProjectName}-log-api-internal-vpce-sg
+      GroupDescription: Allow HTTPS from ECS tasks (all apps share one SG) to the execute-api VPC Endpoint
+      VpcId: !ImportValue
+        Fn::Sub: ${ProjectName}-vpc-id
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          SourceSecurityGroupId: !ImportValue
+            Fn::Sub: ${ProjectName}-ecs-sg-id
+
+  # ── Interface VPC Endpoint（execute-api） ───────────────────────────────────
+  # PrivateDnsEnabled により、VPC 内からは通常の execute-api invoke URL
+  # （https://{restapi-id}.execute-api.{region}.amazonaws.com/{stage}）がそのまま
+  # このエンドポイント経由で解決される。Private Subnet に配置し、呼び出し元
+  # （user-company-api ECS タスク）と同じ AZ 構成に揃える。
+  VpcEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !ImportValue
+        Fn::Sub: ${ProjectName}-vpc-id
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.execute-api
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - !ImportValue
+          Fn::Sub: ${ProjectName}-private-subnet-1a-id
+        - !ImportValue
+          Fn::Sub: ${ProjectName}-private-subnet-1c-id
+      SecurityGroupIds:
+        - !Ref VpcEndpointSecurityGroup
+
+  # ── Private REST API ─────────────────────────────────────────────────────
+  # VpcLink は作らない・受け取らない。openapi.yaml が Fn::ImportValue で
+  # 06-shared-cluster-lb.yaml の VpcLinkId Export を直接参照するため、この
+  # スタックは NlbDnsName（バックエンドのホスト名として使う）だけ用意すればよい。
+  # Body は apps/log-api/openapi.yaml を 07-ecs-log-api.yaml と全く同じ内容のまま再利用する。
+  # Policy は Body（openapi.yaml）の外側で定義する CFN プロパティで、PRIVATE エンドポイントの
+  # 必須要件（未設定だとどこからも 403 になる）。この VPC Endpoint 経由のリクエストのみを許可する。
+  RestApi:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: !Sub ${ProjectName}-log-api-internal
+      EndpointConfiguration:
+        Types:
+          - PRIVATE
+        VpcEndpointIds:
+          - !Ref VpcEndpoint
+      Policy:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: '*'
+            Action: execute-api:Invoke
+            Resource: execute-api:/*
+            Condition:
+              StringEquals:
+                aws:sourceVpce: !Ref VpcEndpoint
+      Body:
+        Fn::Transform:
+          Name: AWS::Include
+          Parameters:
+            Location: !Sub s3://${OpenApiBucketName}/${OpenApiObjectKey}
+
+  # AWS::ApiGateway::Deployment はプロパティが同一だと更新検知されないため、
+  # openapi.yaml の sha256 を Description に埋め込んで、spec 変更のたびに新しい
+  # Deployment を作らせる（07-ecs-log-api.yaml と同じ理由・同じ仕組み）。
+  ApiDeployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn: RestApi
+    Properties:
+      RestApiId: !Ref RestApi
+      Description: !Sub Deployment for openapi.yaml sha256:${OpenApiSpecHash}
+
+  ApiStage:
+    Type: AWS::ApiGateway::Stage
+    Properties:
+      RestApiId: !Ref RestApi
+      DeploymentId: !Ref ApiDeployment
+      StageName: prod
+
+Outputs:
+  ApiInvokeUrl:
+    Value: !Sub https://${RestApi}.execute-api.${AWS::Region}.amazonaws.com/${ApiStage}
+    Export:
+      Name: !Sub ${ProjectName}-log-api-internal-invoke-url

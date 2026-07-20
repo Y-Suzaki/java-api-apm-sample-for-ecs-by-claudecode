@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# 指定したアプリの ECS サービススタック（07-ecs-user-company-api.yaml / 08-ecs-log-api.yaml）を
+# 指定したアプリの ECS サービススタック（07-ecs-log-api.yaml / 09-ecs-user-company-api.yaml）を
 # デプロイし、ECS を強制再デプロイする。
+# log-api の場合は、log-api を内部限定で公開する Private API Gateway スタック
+# （08-apigw-log-api-internal.yaml）も続けてデプロイする。
 #
 # IMAGE_URI が未指定の場合は apps/<app>/.last_image_uri から読み込む（build.sh が生成する）。
 #
@@ -82,6 +84,20 @@ fi
 
 deploy_stack "${ECS_STACK}" "${ECS_TEMPLATE}" "${PARAMS[@]}"
 
+# log-api: この直後に、同じ openapi.yaml を再利用する Private API Gateway スタック（08）も
+# デプロイする。user-company-api（09）が 08 の Export（LOG_API_URL 用の invoke URL）を
+# Import するため、user-company-api より先にこの時点でデプロイし終えている必要がある
+# （scripts/common.sh の APPS 配列順で log-api が先に処理される）。
+# VPC Link は 06-shared-cluster-lb.yaml が単一のものを所有し、08 側は openapi.yaml が
+# Fn::ImportValue で直接参照するため、08 は 07 の Output には依存しない。
+if [[ "${APP_NAME}" == "log-api" ]]; then
+  deploy_stack "${INTERNAL_APIGW_STACK}" "${INTERNAL_APIGW_TEMPLATE}" \
+    "ProjectName=${PROJECT_NAME}" \
+    "OpenApiBucketName=${OPENAPI_BUCKET}" \
+    "OpenApiSpecHash=${OPENAPI_HASH}" \
+    "NlbDnsName=${NLB_DNS_NAME}"
+fi
+
 # ECS クラスター名は共有スタック（06）の Output から取得する
 ECS_CLUSTER=$(aws cloudformation describe-stacks \
   --stack-name "${SHARED_STACK}" \
@@ -89,7 +105,7 @@ ECS_CLUSTER=$(aws cloudformation describe-stacks \
   --query 'Stacks[0].Outputs[?OutputKey==`ECSClusterName`].OutputValue' \
   --output text)
 
-# ECS サービス名はこのアプリのスタック（07/08）の Output から取得する
+# ECS サービス名はこのアプリのスタック（log-api: 07、user-company-api: 09）の Output から取得する
 ECS_SERVICE=$(aws cloudformation describe-stacks \
   --stack-name "${ECS_STACK}" \
   --region "${AWS_DEFAULT_REGION}" \
@@ -114,7 +130,7 @@ fi
 log_success "=== ECS service deployed: ${APP_NAME} ==="
 
 if [[ "${APP_NAME}" == "log-api" ]]; then
-  # log-api は ALB を経由しない。API Gateway の invoke URL はこのアプリのスタック（08）の Output から取得する。
+  # log-api は ALB を経由しない。API Gateway の invoke URL はこのアプリのスタック（07）の Output から取得する。
   API_INVOKE_URL=$(aws cloudformation describe-stacks \
     --stack-name "${ECS_STACK}" \
     --region "${AWS_DEFAULT_REGION}" \

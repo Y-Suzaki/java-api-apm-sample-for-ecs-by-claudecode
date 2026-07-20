@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # CloudFormation の共有インフラスタック（ネットワーク、ECR x アプリ数、DynamoDB、RDS、
 # ECS Cluster/ALB/NLB）をデプロイする。
-# 各アプリの ECS サービス（07/08）は Docker イメージ URI が必要なため deploy-service.sh で行う。
+# 各アプリの ECS サービス（log-api: 07、user-company-api: 09）は Docker イメージ URI が必要なため
+# deploy-service.sh で行う。
 #
 # RDS MySQL マスターパスワードは RDS 管理シークレット（ManageMasterUserPassword）により
 # AWS が自動生成・管理するため、デプロイ側でのパスワード指定は不要。
@@ -33,6 +34,10 @@ deploy_stack "${RDS_STACK}" "${CF_DIR}/05-rds.yaml" \
   "ProjectName=${PROJECT_NAME}"
 
 # 06: 共有 ECS Cluster / ALB / NLB / SG（全アプリ共有）
+# AlbCertificateArn は空のまま（デフォルト、mTLS 無効）でデプロイする。
+# ALB の DNS 名が確定してから scripts/generate-mtls-certs.sh + scripts/deploy-mtls.sh で
+# 自己署名サーバー証明書を作成・ACM インポートし、AlbCertificateArn 付きで 06 を再デプロイして
+# mTLS を有効化する（このスクリプトの後続ステップ）。
 deploy_stack "${SHARED_STACK}" "${CF_DIR}/06-shared-cluster-lb.yaml" \
   "ProjectName=${PROJECT_NAME}"
 
