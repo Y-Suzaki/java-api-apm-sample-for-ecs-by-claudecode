@@ -1,19 +1,14 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >
-  ECS Fargate Service stack for log-api (a minimal sample API that accepts JSON
+  ECS Fargate Service stack for log-api (minimal sample API that accepts JSON
   logs and prints them to stdout). Imports Exports from 06-shared-cluster-lb.yaml
-  (ECS Cluster / NLB / SG / OpenAPI staging bucket). APM (ADOT/X-Ray) is
-  intentionally not included, since this app exists as a minimal sample of
-  application separation.
-  The NLB itself is shared, but this stack adds a Listener dedicated to this app on
-  port 8081 (user-company-api already uses port 80, so each app gets its own NLB
-  listener port to keep traffic separated).
-  Unlike user-company-api, log-api is NOT routed through the shared ALB. Instead,
-  this stack owns an API Gateway REST API that reaches the NLB directly via a
-  VPC Link (Internet -> API Gateway -> VPC Link -> NLB -> ECS). The REST API's
-  Body is imported from apps/log-api/openapi.yaml, staged in S3 and pulled in via
-  Fn::Transform (AWS::Include), so editing that file and redeploying updates the
-  API Gateway definition automatically.
+  (ECS Cluster / NLB / SG / OpenAPI staging bucket). No APM instrumentation.
+  Adds an NLB Listener on port 8081 dedicated to this app (user-company-api uses
+  port 80). Unlike user-company-api, log-api is not routed through the shared ALB:
+  this stack owns an API Gateway REST API that reaches the NLB via the VPC Link
+  owned by 06-shared-cluster-lb.yaml (Internet -> API Gateway -> VPC Link -> NLB
+  -> ECS). The REST API's Body is imported from apps/log-api/openapi.yaml, staged
+  in S3 and pulled in via Fn::Transform (AWS::Include).
 
 Parameters:
   ProjectName:
@@ -118,19 +113,12 @@ Resources:
           TargetGroupArn: !Ref NlbTargetGroup
 
   # ── API Gateway REST API（このアプリ専用。Internet からの唯一の入口） ──────
-  # NLB を PrivateLink 経由のターゲットとする VPC Link。REST API の VpcLink は
-  # サブネット/SG ではなく NLB の ARN を直接指定する（HTTP API の VpcLink とは異なる）。
-  VpcLink:
-    Type: AWS::ApiGateway::VpcLink
-    Properties:
-      Name: !Sub ${ProjectName}-log-api-vpclink
-      TargetArns:
-        - !ImportValue
-          Fn::Sub: ${ProjectName}-nlb-arn
-
+  # VPC Link は NLB を1つしか持てないため 06-shared-cluster-lb.yaml が単一のものを所有する。
+  # ここでは作らず、openapi.yaml 内で Fn::ImportValue により直接参照する。
+  #
   # Body は apps/log-api/openapi.yaml を S3 経由で読み込む（Fn::Transform: AWS::Include）。
   # openapi.yaml 内の connectionId/uri は、この Include 展開後に同一テンプレート内の
-  # VpcLink / NlbDnsName パラメータとして解決される。
+  # ProjectName パラメータ・06 の VpcLinkId Export として解決される。
   RestApi:
     Type: AWS::ApiGateway::RestApi
     Properties:

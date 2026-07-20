@@ -26,3 +26,6 @@ replay_pid*
 .idea/
 target/
 .last_image_uri
+
+# mTLS 用おれおれ Root CA / サーバー証明書 / クライアント証明書（秘密鍵を含むためコミットしない）
+certs/

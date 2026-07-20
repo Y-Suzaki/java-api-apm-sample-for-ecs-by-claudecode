@@ -4,6 +4,8 @@ Description: >
   Imports Exports from 06-shared-cluster-lb.yaml (ECS Cluster / ALB / NLB / SG) and
   from the DynamoDB / RDS stacks. The NLB itself is shared, but this stack creates
   a Listener (port 80) and target group dedicated to this app.
+  Also imports the ApiInvokeUrl Export of 08-apigw-log-api-internal.yaml (LOG_API_URL
+  env var) - that stack must therefore be deployed before this one on first deploy.
 
 Parameters:
   ProjectName:
@@ -161,6 +163,11 @@ Resources:
             - Name: DYNAMODB_USERS_TABLE
               Value: !Ref UsersTableName
             # DYNAMODB_ENDPOINT_URL は本番では未設定（デフォルトのリージョンエンドポイントを使用）
+
+            # ----- log-api への内部ログ送信（08-apigw-log-api-internal.yaml の Private API Gateway 経由） -----
+            - Name: LOG_API_URL
+              Value: !ImportValue
+                Fn::Sub: ${ProjectName}-log-api-internal-invoke-url
 
             # ----- MySQL（Company API）接続設定 -----
             - Name: MYSQL_URL

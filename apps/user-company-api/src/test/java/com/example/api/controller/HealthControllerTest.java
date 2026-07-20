@@ -1,9 +1,11 @@
 package com.example.api.controller;
 
+import com.example.api.client.LogApiClient;
 import com.example.api.config.AppProperties;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -21,6 +23,14 @@ class HealthControllerTest {
 
     @MockitoBean
     private AppProperties appProperties;
+
+    // RequestLoggingFilter は全リクエストに適用される Filter Bean のため、
+    // @WebMvcTest(HealthController.class) のスライスにも読み込まれ、その依存先が必要になる。
+    @MockitoBean
+    private LogApiClient logApiClient;
+
+    @MockitoBean(name = "logApiTaskExecutor")
+    private ThreadPoolTaskExecutor logApiTaskExecutor;
 
     @Test
     void health_returnsOkStatusWithEnv() throws Exception {

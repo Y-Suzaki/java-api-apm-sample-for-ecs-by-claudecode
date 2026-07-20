@@ -7,7 +7,9 @@ export AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION:-ap-northeast-1}"
 
 # リポジトリ内のアプリ一覧（apps/ 配下のディレクトリ名と一致させる）。
 # deploy-infra.sh / deploy-all.sh / delete-all.sh がこの一覧をループしてアプリ別スタックを扱う。
-APPS=(user-company-api log-api)
+# 09 (user-company-api) は 08 (log-api 用 Private API Gateway) の Export を Import するため、
+# log-api を先にデプロイする必要がある。この配列の順序が deploy-all.sh のループ順を決める。
+APPS=(log-api user-company-api)
 
 # スタック名（アプリ非依存の共有スタックのみ）
 export NETWORK_STACK="${PROJECT_NAME}-network"
@@ -19,6 +21,13 @@ export SHARED_STACK="${PROJECT_NAME}-shared"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export PROJECT_DIR="${SCRIPT_DIR}/.."
 export CF_DIR="${SCRIPT_DIR}/../cloudformation"
+
+# log-api を内部（VPC 限定）に公開する Private API Gateway スタック。
+# log-api の ECS/NLB を所有する 07 とは別スタックだが、07 がアップロードする
+# openapi.yaml の S3 オブジェクトを再利用するため、deploy-service.sh の log-api
+# ブランチの中でまとめてデプロイする（08-apigw-log-api-internal.yaml）。
+export INTERNAL_APIGW_STACK="${PROJECT_NAME}-apigw-log-api-internal"
+export INTERNAL_APIGW_TEMPLATE="${CF_DIR}/08-apigw-log-api-internal.yaml"
 
 # AWS 認証情報チェック（未設定の場合は即エラー終了）
 : "${AWS_ACCESS_KEY_ID:?AWS_ACCESS_KEY_ID is not set. Export it before running deploy scripts.}"
@@ -53,8 +62,8 @@ app_ecs_stack() {
 # アプリ名 → ECS サービススタックのテンプレートファイルを解決する
 app_ecs_template() {
   case "$1" in
-    user-company-api) echo "${CF_DIR}/07-ecs-user-company-api.yaml" ;;
-    log-api) echo "${CF_DIR}/08-ecs-log-api.yaml" ;;
+    user-company-api) echo "${CF_DIR}/09-ecs-user-company-api.yaml" ;;
+    log-api) echo "${CF_DIR}/07-ecs-log-api.yaml" ;;
     *) log_error "Unknown app: $1 (expected one of: ${APPS[*]})"; exit 1 ;;
   esac
 }

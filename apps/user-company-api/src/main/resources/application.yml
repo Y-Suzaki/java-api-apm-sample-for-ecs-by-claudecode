@@ -32,6 +32,12 @@ spring:
           ipify:
             connect-timeout: 3000  # 接続タイムアウト (ms)
             read-timeout: 5000     # 読み取りタイムアウト (ms)
+          # "log-api" は @FeignClient(name = "log-api") と対応するクライアント名。
+          # fire-and-forget（RequestLoggingFilter）で使うため短めに設定し、
+          # log-api 障害時にリクエスト処理用スレッドを長時間塞がないようにする。
+          log-api:
+            connect-timeout: 2000  # 接続タイムアウト (ms)
+            read-timeout: 3000     # 読み取りタイムアウト (ms)
 
 # アプリケーション固有の設定
 app:
@@ -52,3 +58,11 @@ external:
   ipify:
     # ipify のベース URL。@FeignClient の url に注入される。
     url: ${IPIFY_URL:https://api.ipify.org}
+
+# 内部 API（同一 VPC 内の他アプリ）設定
+internal:
+  log-api:
+    # log-api を内部限定公開する Private API Gateway の invoke URL。
+    # ECS タスク定義の環境変数 LOG_API_URL（09-apigw-log-api-internal.yaml の Output）で上書きされる。
+    # ローカル開発では未接続でも起動できる（RequestLoggingFilter は送信失敗を握りつぶす）。
+    url: ${LOG_API_URL:http://localhost:8081}
